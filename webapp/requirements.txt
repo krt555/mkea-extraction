@@ -1,0 +1,6 @@
+# MesoScope web layer dependencies.
+# The extraction core's own dependency (pymupdf) is declared in ../pyproject.toml.
+fastapi>=0.110
+uvicorn[standard]>=0.27
+python-multipart>=0.0.9
+pymupdf>=1.26,<2

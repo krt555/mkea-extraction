@@ -1,0 +1,27 @@
+# Local environment / secrets
+.env
+.env.*
+!.env.example
+
+__pycache__/
+*.py[cod]
+.venv/
+.DS_Store
+.pytest_cache/
+.ruff_cache/
+*.egg-info/
+build/
+dist/
+
+# Local inputs and run outputs
+papers/*.pdf
+!papers/README.md
+outputs/
+data/cache/
+
+# MesoScope web app runtime state (database + uploaded PDFs)
+webapp/data/
+
+# IDE
+.idea/
+.vscode/

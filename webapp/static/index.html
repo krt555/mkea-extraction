@@ -1,0 +1,191 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>MesoScope · 介孔材料合成条件抽取平台</title>
+<link rel="stylesheet" href="/static/style.css" />
+</head>
+<body>
+<div class="app">
+
+  <aside class="sidebar">
+    <div class="brand">
+      <div class="brand-mark">MS</div>
+      <div class="brand-text">
+        <strong>MesoScope</strong>
+        <span>介孔材料合成条件抽取</span>
+      </div>
+    </div>
+
+    <nav class="nav" id="nav">
+      <button class="nav-item active" data-view="library">
+        <span class="nav-ico">■</span><span>文献库</span>
+      </button>
+      <button class="nav-item" data-view="review">
+        <span class="nav-ico">▦</span><span>复核工作台</span>
+      </button>
+      <button class="nav-item" data-view="search">
+        <span class="nav-ico">▼</span><span>跨论文检索</span>
+      </button>
+      <button class="nav-item" data-view="jobs">
+        <span class="nav-ico">●</span><span>任务与日志</span>
+      </button>
+    </nav>
+
+    <div class="sidebar-foot">
+      <div class="engine-card" id="engineCard">
+        <div class="engine-row">
+          <span class="dot" id="engineDot"></span>
+          <span id="engineName">检测中…</span>
+        </div>
+        <p id="engineHint">正在读取抽取引擎状态</p>
+      </div>
+      <div class="stat-grid" id="statGrid"></div>
+    </div>
+  </aside>
+
+  <main class="main">
+    <header class="topbar">
+      <div>
+        <h1 id="viewTitle">文献库</h1>
+        <p id="viewSub">上传论文、创建抽取任务、查看记录数量</p>
+      </div>
+      <div class="topbar-actions">
+        <label class="btn primary" for="fileInput">
+          <span>＋ 上传 PDF</span>
+          <input id="fileInput" type="file" accept="application/pdf" multiple hidden />
+        </label>
+        <button class="btn" id="askToggle">AI 助手</button>
+      </div>
+    </header>
+
+    <section class="view active" id="view-library">
+      <div class="upload-zone" id="uploadZone">
+        <strong>把 PDF 拖到这里</strong>
+        <span>解析后即可创建抽取任务；支持多选上传</span>
+      </div>
+      <div class="paper-grid" id="paperGrid"></div>
+      <div class="empty" id="libraryEmpty" hidden>
+        <strong>文献库是空的</strong>
+        <p>上传一篇介孔材料合成论文，或点击下方按钮载入内置演示数据。</p>
+        <button class="btn primary" id="seedBtn">载入演示数据</button>
+      </div>
+    </section>
+
+    <section class="view" id="view-review">
+      <div class="review-head">
+        <select id="reviewPaper" class="select"></select>
+        <div class="review-meta" id="reviewMeta"></div>
+        <div class="review-tools">
+          <button class="btn" id="exportJsonl">导出 JSONL</button>
+          <button class="btn" id="exportCsv">导出 CSV</button>
+        </div>
+      </div>
+      <div class="workbench">
+        <div class="panel pdf-panel">
+          <div class="panel-head">
+            <span>原文定位</span>
+            <div class="page-nav">
+              <button class="icon-btn" id="pagePrev">‹</button>
+              <span id="pageLabel">— / —</span>
+              <button class="icon-btn" id="pageNext">›</button>
+            </div>
+          </div>
+          <div class="evidence-box" id="evidenceBox" hidden>
+            <div class="evidence-label">当前字段证据</div>
+            <p id="evidenceQuote"></p>
+          </div>
+          <div class="page-text" id="pageText">
+            <div class="placeholder">在右侧点击任意字段，这里会跳转到证据所在页并高亮引文。</div>
+          </div>
+        </div>
+        <div class="panel field-panel">
+          <div class="panel-head">
+            <span>抽取记录</span>
+            <div class="record-tabs" id="recordTabs"></div>
+          </div>
+          <div class="field-list" id="fieldList">
+            <div class="placeholder">选择一篇已完成抽取的论文。</div>
+          </div>
+          <div class="panel-foot" id="reviewFoot" hidden>
+            <label class="check">
+              <input type="checkbox" id="reviewedFlag" /> 标记为已复核
+            </label>
+            <button class="btn primary" id="saveRecord">保存修改</button>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="view" id="view-search">
+      <div class="filter-bar">
+        <input class="input grow" id="searchQ" placeholder="字段值关键词，例如 P123、cubic、TEOS" />
+        <select class="select" id="searchField"><option value="">全部字段</option></select>
+        <div class="range">
+          <span>比表面积</span>
+          <input class="input tiny" id="saMin" placeholder="≥" inputmode="decimal" />
+          <input class="input tiny" id="saMax" placeholder="≤" inputmode="decimal" />
+        </div>
+        <div class="range">
+          <span>孔径</span>
+          <input class="input tiny" id="poreMin" placeholder="≥" inputmode="decimal" />
+          <input class="input tiny" id="poreMax" placeholder="≤" inputmode="decimal" />
+        </div>
+        <label class="check"><input type="checkbox" id="reviewedOnly" /> 仅已复核</label>
+        <button class="btn primary" id="searchBtn">检索</button>
+      </div>
+      <div class="search-summary" id="searchSummary"></div>
+      <div class="table-wrap">
+        <table class="data-table" id="searchTable">
+          <thead></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </section>
+
+    <section class="view" id="view-jobs">
+      <div class="table-wrap">
+        <table class="data-table" id="jobTable">
+          <thead>
+            <tr><th>#</th><th>论文</th><th>状态</th><th>引擎</th><th>模型</th><th>记录</th><th>提示</th><th>时间</th></tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </section>
+  </main>
+
+  <aside class="ask-panel" id="askPanel">
+    <div class="ask-head">
+      <div>
+        <strong>AI 助手</strong>
+        <span id="askScopeLabel">全部论文</span>
+      </div>
+      <button class="icon-btn" id="askClose">×</button>
+    </div>
+    <div class="ask-scope">
+      <select class="select" id="askScope"><option value="">全部论文</option></select>
+    </div>
+    <div class="ask-body" id="askBody">
+      <div class="ask-msg bot">
+        <p>你可以这样问：</p>
+        <div class="chips">
+          <button class="chip">比表面积最高的样品是多少？</button>
+          <button class="chip">用了什么表面活性剂？</button>
+          <button class="chip">煅烧温度和时间是多少？</button>
+        </div>
+        <p class="muted">每条回答都会附带页码引文，点击即可跳到原文。</p>
+      </div>
+    </div>
+    <form class="ask-form" id="askForm">
+      <input class="input" id="askInput" placeholder="围绕论文提问…" autocomplete="off" />
+      <button class="btn primary" type="submit">发送</button>
+    </form>
+  </aside>
+
+  <div class="toast-wrap" id="toastWrap"></div>
+</div>
+<script src="/static/app.js"></script>
+</body>
+</html>
