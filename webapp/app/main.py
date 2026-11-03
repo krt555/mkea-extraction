@@ -381,11 +381,20 @@ async def api_create_job(request: Request) -> dict[str, Any]:
 
 @app.get("/api/jobs/{job_fk}")
 def api_job(job_fk: int) -> dict[str, Any]:
-    row = db.one("SELECT * FROM jobs WHERE id = ?", (job_fk,))
+    row = db.one(
+        """
+        SELECT jobs.*, papers.paper_key, papers.title
+        FROM jobs JOIN papers ON papers.id = jobs.paper_fk
+        WHERE jobs.id = ?
+        """,
+        (job_fk,),
+    )
     if not row:
         raise HTTPException(404, "任务不存在")
     payload = _job_payload(row)
     payload["paper_fk"] = row["paper_fk"]
+    payload["paper_key"] = row["paper_key"]
+    payload["title"] = row["title"]
     payload["usage"] = loads(row["usage_json"], {})
     return payload
 

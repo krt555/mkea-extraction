@@ -1,4 +1,4 @@
-/* MesoScope front-end.
+/* 化学文献信息提取 — front-end.
  * No framework on purpose: one file, no build step, easy to demo and to read.
  */
 
@@ -6,13 +6,15 @@ const S = {
   status: null,
   fields: [],
   papers: [],
-  paper: null,          // full payload of the paper open in the workbench
+  paper: null,          // full payload of the paper open in the review view
   recordIndex: 0,
   page: 1,
   pageCache: new Map(), // `${paperFk}:${page}` -> text
   dirty: new Map(),     // field key -> new value
   activeField: null,
   pollers: new Map(),
+  compareRows: [],      // all records available for comparison
+  compareSel: new Set(),// selected record_id set
 };
 
 const $ = (id) => document.getElementById(id);
@@ -34,16 +36,46 @@ function toast(message, kind = "") {
   node.className = `toast ${kind}`;
   node.textContent = message;
   $("toastWrap").append(node);
-  setTimeout(() => node.remove(), 3600);
+  setTimeout(() => node.remove(), 4200);
 }
+
+/* ------------------------------------------------------------------ */
+/* theme                                                               */
+/* ------------------------------------------------------------------ */
+
+const THEME_KEY = "cheminfo-theme";
+
+function applyTheme(name) {
+  document.documentElement.dataset.theme = name;
+  const dark = name === "dark";
+  $("themeIcon").textContent = dark ? "☾" : "☀";
+  $("themeLabel").textContent = dark ? "夜间模式" : "白天模式";
+  try { localStorage.setItem(THEME_KEY, name); } catch (_) {}
+}
+
+$("themeToggle").addEventListener("click", () => {
+  applyTheme(document.documentElement.dataset.theme === "dark" ? "light" : "dark");
+});
+
+(function initTheme() {
+  let saved = null;
+  try { saved = localStorage.getItem(THEME_KEY); } catch (_) {}
+  if (!saved) {
+    const prefersLight = window.matchMedia
+      && window.matchMedia("(prefers-color-scheme: light)").matches;
+    saved = prefersLight ? "light" : "dark";
+  }
+  applyTheme(saved);
+})();
 
 /* ------------------------------------------------------------------ */
 /* navigation                                                          */
 /* ------------------------------------------------------------------ */
 
 const VIEW_META = {
-  library: ["文献库", "上传论文、创建抽取任务、查看记录数量"],
-  review: ["复核工作台", "左右联动：点击字段跳到证据原文，可直接修改并保存"],
+  library: ["文献库", "上传论文、创建抽取任务、查看进度与记录数量"],
+  review: ["提取结果", "左右联动：点击字段跳到证据原文，可直接修改并保存"],
+  compare: ["样品对比", "跨论文勾选多条记录，生成条件矩阵并高亮差异项"],
   search: ["跨论文检索", "按字段值与数值区间筛选，横向比较不同论文的合成条件"],
   jobs: ["任务与日志", "抽取任务状态、使用的引擎与模型、运行提示"],
 };
@@ -58,6 +90,7 @@ function showView(name) {
   $("viewSub").textContent = sub;
   if (name === "jobs") loadJobs();
   if (name === "search") runSearch();
+  if (name === "compare") loadCompare();
 }
 
 $("nav").addEventListener("click", (event) => {
@@ -66,7 +99,7 @@ $("nav").addEventListener("click", (event) => {
 });
 
 /* ------------------------------------------------------------------ */
-/* status + library                                                    */
+/* status                                                              */
 /* ------------------------------------------------------------------ */
 
 async function loadStatus() {
@@ -93,11 +126,103 @@ async function loadStatus() {
   }
 }
 
-function statusBadge(job) {
+/* ------------------------------------------------------------------ */
+/* library: grouped by extraction state                                */
+/* ------------------------------------------------------------------ */
+
+/** 把任务状态归一成四种库内分组。 */
+function groupOf(paper) {
+  const job = paper.latest_job;
+  if (job && (job.status === "running" || job.status === "queued")) return "running";
+  if (paper.n_records > 0) return "done";
+  if (job && job.status === "failed") return "failed";
+  return "pending";
+}
+
+const STAGE_SEQUENCE = ["解析 PDF", "抽取", "后处理", "完成"];
+
+/** 把后端阶段文字映射到固定的 4 步，便于显示“第几步”。 */
+function stageStep(stage) {
+  if (!stage) return 0;
+  if (stage.includes("排队")) return 0;
+  if (stage.includes("解析")) return 1;
+  if (stage.includes("LLM") || stage.includes("规则") || stage.includes("Agent")) return 2;
+  if (stage.includes("后处理") || stage.includes("证据")) return 3;
+  if (stage.includes("完成")) return 4;
+  return 1;
+}
+
+/** 渲染 4 步进度条的文字部分，已完成的步骤用对勾替代序号。 */
+function stepsHtml(step) {
+  return STAGE_SEQUENCE.map((label, index) => {
+    const position = index + 1;
+    const cls = step > position ? "done" : step === position ? "now" : "";
+    const marker = step > position ? "✓" : `${position}.`;
+    return `<span class="${cls}">${marker} ${esc(label)}</span>`;
+  }).join("");
+}
+
+function runningCardHtml(paper) {
+  const job = paper.latest_job;
+  const pct = Math.max(3, Math.min(100, job.progress || 0));
+  const queued = job.status === "queued";
+  return `
+  <div class="running-card" data-id="${paper.id}">
+    <div class="running-top">
+      <span class="running-key">${esc(paper.paper_key)}</span>
+      <span class="running-title">${esc(paper.title)}</span>
+      <span class="running-pct">${pct}%</span>
+    </div>
+    <div class="running-bar"><i style="width:${pct}%"></i></div>
+    <div class="running-foot">
+      <span class="running-stage">
+        <i class="spin"></i>${esc(queued ? "排队中，等待空闲线程" : job.stage || "处理中")}
+      </span>
+      <span class="running-steps">${stepsHtml(stageStep(job.stage))}</span>
+    </div>
+    <div class="running-elapsed" data-started="${esc(job.created_at || "")}"></div>
+  </div>`;
+}
+
+function paperCardHtml(paper, group) {
+  const job = paper.latest_job;
+  return `
+  <div class="paper-card" data-id="${paper.id}">
+    <div class="paper-top">
+      <div>
+        <div class="paper-key">${esc(paper.paper_key)}</div>
+        <h3 class="paper-title">${esc(paper.title)}</h3>
+      </div>
+      ${statusBadge(job, paper)}
+    </div>
+    <div class="paper-dims">
+      <span>${paper.pages} 页</span><span>${paper.n_tables} 表</span>
+      <span>${(paper.chars / 1000).toFixed(1)}k 字符</span>
+      ${paper.n_records ? `<span>${paper.n_reviewed}/${paper.n_records} 已复核</span>` : ""}
+    </div>
+    ${group === "failed" && job ? `<div class="paper-err">${esc(job.message || "未知错误")}</div>` : ""}
+    <div class="paper-actions">
+      <select class="select sm" data-mode="${paper.id}" title="抽取模式">
+        <option value="anchored">anchored</option>
+        <option value="oneshot">oneshot</option>
+        <option value="agent">agent</option>
+        <option value="rules">rules</option>
+      </select>
+      <button class="btn sm" data-act="run">${group === "done" ? "重抽" : "抽取"}</button>
+      <button class="btn sm" data-act="open" ${paper.n_records ? "" : "disabled"}>结果</button>
+      <button class="btn sm danger" data-act="del">删除</button>
+    </div>
+  </div>`;
+}
+
+function statusBadge(job, paper) {
+  if (paper && paper.n_records > 0 && job && job.status === "succeeded") {
+    return `<span class="badge ok">${paper.n_records} 条记录</span>`;
+  }
   if (!job) return '<span class="badge idle">未抽取</span>';
   const map = {
     queued: ["run", "排队中"],
-    running: ["run", job.stage || "运行中"],
+    running: ["run", `${job.progress || 0}%`],
     succeeded: ["ok", `${job.n_records} 条记录`],
     failed: ["err", "失败"],
   };
@@ -109,7 +234,8 @@ async function loadPapers() {
   const data = await api("/api/papers");
   S.papers = data.papers;
   renderLibrary();
-  renderPaperSelects();
+  renderPaperSwitch();
+  renderAskScope();
   S.papers.forEach((p) => {
     const job = p.latest_job;
     if (job && (job.status === "running" || job.status === "queued")) pollJob(job.id);
@@ -117,42 +243,27 @@ async function loadPapers() {
 }
 
 function renderLibrary() {
-  const grid = $("paperGrid");
+  const buckets = { running: [], done: [], pending: [], failed: [] };
+  S.papers.forEach((p) => buckets[groupOf(p)].push(p));
+
   $("libraryEmpty").hidden = S.papers.length > 0;
-  grid.innerHTML = S.papers.map((p) => {
-    const job = p.latest_job;
-    const running = job && (job.status === "running" || job.status === "queued");
-    return `
-    <div class="paper-card" data-id="${p.id}">
-      <div class="paper-top">
-        <div>
-          <div class="paper-key">${esc(p.paper_key)}</div>
-          <h3 class="paper-title">${esc(p.title)}</h3>
-        </div>
-        ${statusBadge(job)}
-      </div>
-      <div class="paper-dims">
-        <span>${p.pages} 页</span><span>${p.n_tables} 表</span>
-        <span>${(p.chars / 1000).toFixed(1)}k 字符</span>
-        ${p.n_records ? `<span>${p.n_reviewed}/${p.n_records} 已复核</span>` : ""}
-      </div>
-      ${running ? `<div class="progress"><i style="width:${job.progress}%"></i></div>` : ""}
-      <div class="paper-actions">
-        <select class="select sm" data-mode="${p.id}" title="抽取模式">
-          <option value="anchored">anchored</option>
-          <option value="oneshot">oneshot</option>
-          <option value="agent">agent</option>
-          <option value="rules">rules</option>
-        </select>
-        <button class="btn sm" data-act="run" ${running ? "disabled" : ""}>抽取</button>
-        <button class="btn sm" data-act="open" ${p.n_records ? "" : "disabled"}>复核</button>
-        <button class="btn sm ghost" data-act="del">删</button>
-      </div>
-    </div>`;
-  }).join("");
+
+  $("groupRunning").hidden = !buckets.running.length;
+  $("runningCount").textContent = buckets.running.length;
+  $("runningList").innerHTML = buckets.running.map(runningCardHtml).join("");
+
+  const fill = (group, groupId, gridId, countId) => {
+    const items = buckets[group];
+    $(groupId).hidden = !items.length;
+    $(countId).textContent = items.length;
+    $(gridId).innerHTML = items.map((p) => paperCardHtml(p, group)).join("");
+  };
+  fill("done", "groupDone", "doneGrid", "doneCount");
+  fill("pending", "groupPending", "pendingGrid", "pendingCount");
+  fill("failed", "groupFailed", "failedGrid", "failedCount");
 }
 
-$("paperGrid").addEventListener("click", async (event) => {
+async function handleCardAction(event) {
   const card = event.target.closest(".paper-card");
   const button = event.target.closest("button[data-act]");
   if (!card || !button) return;
@@ -166,43 +277,71 @@ $("paperGrid").addEventListener("click", async (event) => {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ paper_fk: id, mode }),
       });
-      toast(`任务已创建（${mode}）`);
+      toast(`任务已创建（${mode}），进度显示在“正在抽取”`);
+      await loadPapers();
       pollJob(job.id);
-      loadPapers();
     } catch (error) { toast(error.message, "err"); }
   }
 
   if (button.dataset.act === "open") {
-    $("reviewPaper").value = String(id);
     showView("review");
     await openPaper(id);
   }
 
   if (button.dataset.act === "del") {
-    if (!confirm("删除这篇论文及其全部抽取记录？")) return;
+    const paper = S.papers.find((p) => p.id === id);
+    if (!confirm(`删除「${paper ? paper.paper_key : id}」及其全部抽取记录？`)) return;
     await api(`/api/papers/${id}`, { method: "DELETE" });
     if (S.paper && S.paper.id === id) { S.paper = null; renderFields(); }
     toast("已删除");
-    loadPapers(); loadStatus();
+    await loadPapers();
+    await loadStatus();
   }
-});
+}
+
+["doneGrid", "pendingGrid", "failedGrid"].forEach((id) =>
+  $(id).addEventListener("click", handleCardAction));
+
+/** 显示已用时长；LLM 阶段额外提示耗时属正常。 */
+function renderElapsed(node, startedAt, slow) {
+  if (!node) return;
+  const started = Date.parse(startedAt || "");
+  if (!started) { node.textContent = ""; return; }
+  const seconds = Math.max(0, Math.round((Date.now() - started) / 1000));
+  const text = seconds < 60
+    ? `${seconds} 秒`
+    : `${Math.floor(seconds / 60)} 分 ${String(seconds % 60).padStart(2, "0")} 秒`;
+  node.textContent = slow
+    ? `已用 ${text} · LLM 单篇推理通常需要 1–3 分钟，请耐心等待`
+    : `已用 ${text}`;
+}
 
 function pollJob(jobId) {
   if (S.pollers.has(jobId)) return;
   const timer = setInterval(async () => {
     try {
       const job = await api(`/api/jobs/${jobId}`);
-      const card = document.querySelector(`.paper-card[data-id="${job.paper_fk}"]`);
-      if (card) {
-        card.querySelector(".badge").outerHTML = statusBadge(job);
-        const bar = card.querySelector(".progress > i");
-        if (bar) bar.style.width = `${job.progress}%`;
+      const card = document.querySelector(`.running-card[data-id="${job.paper_fk}"]`);
+      if (card && (job.status === "running" || job.status === "queued")) {
+        // 原地更新进度，避免整页重绘导致进度条跳动
+        const pct = Math.max(3, Math.min(100, job.progress || 0));
+        card.querySelector(".running-pct").textContent = `${pct}%`;
+        const bar = card.querySelector(".running-bar > i");
+        bar.style.width = `${pct}%`;
+        const stage = card.querySelector(".running-stage");
+        stage.innerHTML = `<i class="spin"></i>${esc(job.stage || "处理中")}`;
+        card.querySelector(".running-steps").innerHTML = stepsHtml(stageStep(job.stage));
+        // LLM 调用是个长耗时黑盒，百分比会长时间停住；
+        // 用流动条纹 + 已用时长说明“仍在运行”，避免看起来像卡死。
+        const slow = /LLM|Agent|规则/.test(job.stage || "");
+        bar.classList.toggle("indeterminate", slow);
+        renderElapsed(card.querySelector(".running-elapsed"), job.started_at || job.created_at, slow);
       }
       if (job.status === "succeeded" || job.status === "failed") {
         clearInterval(timer);
         S.pollers.delete(jobId);
         if (job.status === "succeeded") {
-          toast(`${job.n_records} 条记录已抽取（${job.engine}）`);
+          toast(`${job.paper_key || "论文"} 抽取完成：${job.n_records} 条记录（${job.engine}）`);
           (job.issues || []).forEach((issue) => toast(issue, "warn"));
         } else {
           toast(`抽取失败：${job.message}`, "err");
@@ -215,7 +354,7 @@ function pollJob(jobId) {
       clearInterval(timer);
       S.pollers.delete(jobId);
     }
-  }, 1200);
+  }, 1000);
   S.pollers.set(jobId, timer);
 }
 
@@ -229,7 +368,7 @@ async function uploadFiles(files) {
     form.append("file", file);
     try {
       const paper = await api("/api/papers", { method: "POST", body: form });
-      toast(`${paper.paper_key} 已解析：${paper.pages} 页`);
+      toast(`${paper.paper_key} 已解析：${paper.pages} 页，可在“待抽取”中启动任务`);
     } catch (error) {
       toast(`${file.name}：${error.message}`, "err");
     }
@@ -256,48 +395,68 @@ zone.addEventListener("drop", (event) => {
 $("seedBtn").addEventListener("click", async () => {
   try {
     await api("/api/demo/seed", { method: "POST" });
-    toast("演示数据已载入");
+    toast("演示数据已载入，抽取进度见“正在抽取”");
     await loadPapers(); await loadStatus();
   } catch (error) { toast(error.message, "err"); }
 });
 
 /* ------------------------------------------------------------------ */
-/* review workbench                                                    */
+/* review (提取结果)                                                   */
 /* ------------------------------------------------------------------ */
 
-function renderPaperSelects() {
-  const options = S.papers.map((p) =>
-    `<option value="${p.id}">${esc(p.paper_key)} · ${esc(p.title)}</option>`).join("");
-  const review = $("reviewPaper");
-  const current = review.value;
-  review.innerHTML = options || '<option value="">（暂无论文）</option>';
-  if (current && S.papers.some((p) => String(p.id) === current)) review.value = current;
-
-  const scope = $("askScope");
-  const scopeCurrent = scope.value;
-  scope.innerHTML = '<option value="">全部论文</option>' + options;
-  scope.value = scopeCurrent;
+/** 卡片式论文切换器：一眼看到有哪些论文、各有几条记录、当前在看哪篇。 */
+function renderPaperSwitch() {
+  const usable = S.papers.filter((p) => p.n_records > 0);
+  const box = $("paperSwitch");
+  if (!usable.length) {
+    box.innerHTML = '<span class="group-note">还没有已完成抽取的论文。</span>';
+    return;
+  }
+  box.innerHTML = usable.map((p) => `
+    <button class="switch-card ${S.paper && S.paper.id === p.id ? "active" : ""}"
+            data-id="${p.id}" title="${esc(p.title)}">
+      <span class="switch-top">
+        <span class="switch-key">${esc(p.paper_key)}</span>
+        <span class="switch-count">${p.n_reviewed}/${p.n_records}</span>
+      </span>
+      <span class="switch-title">${esc(p.title)}</span>
+    </button>`).join("");
 }
 
-$("reviewPaper").addEventListener("change", (event) => {
-  if (event.target.value) openPaper(Number(event.target.value));
+$("paperSwitch").addEventListener("click", async (event) => {
+  const card = event.target.closest(".switch-card");
+  if (!card) return;
+  const id = Number(card.dataset.id);
+  if (S.paper && S.paper.id === id) return;
+  if (S.dirty.size && !confirm("当前记录有未保存的修改，切换会丢失。继续？")) return;
+  await openPaper(id);
 });
+
+function renderAskScope() {
+  const scope = $("askScope");
+  const current = scope.value;
+  scope.innerHTML = '<option value="">全部论文</option>' + S.papers
+    .map((p) => `<option value="${p.id}">${esc(p.paper_key)} · ${esc(p.title)}</option>`)
+    .join("");
+  if (current && S.papers.some((p) => String(p.id) === current)) scope.value = current;
+}
 
 async function openPaper(paperFk) {
   S.paper = await api(`/api/papers/${paperFk}`);
   S.recordIndex = 0;
   S.dirty.clear();
   S.activeField = null;
-  $("reviewPaper").value = String(paperFk);
 
   const job = S.paper.latest_job;
   $("reviewMeta").innerHTML = [
     `${S.paper.pages} 页`,
     `${S.paper.n_records} 条记录`,
+    `${S.paper.n_reviewed} 条已复核`,
     job ? `引擎 ${esc(job.engine || "—")}` : "未抽取",
     job && job.model ? `模型 ${esc(job.model)}` : "",
   ].filter(Boolean).map((t) => `<span>${t}</span>`).join("");
 
+  renderPaperSwitch();
   renderRecordTabs();
   renderFields();
   await showPage(firstEvidencePage() || 1);
@@ -357,8 +516,8 @@ function renderFields() {
              value="${esc(value ?? "")}" placeholder="null（未报道）" />
       <div class="field-side">
         ${conf !== undefined ? `<span class="conf">${(conf * 100).toFixed(0)}%</span>` : ""}
-        ${items.map((item) => `<span class="page-pill" data-page="${item.page}"
-             data-key="${f.key}" data-idx="${items.indexOf(item)}">p.${item.page}</span>`).join("")}
+        ${items.map((item, index) => `<span class="page-pill" data-page="${item.page}"
+             data-key="${f.key}" data-idx="${index}">p.${item.page}</span>`).join("")}
       </div>
     </div>`;
   }).join("");
@@ -452,7 +611,6 @@ function highlightQuote(text, quote) {
     try { return new RegExp(pattern, "i"); } catch (_) { return null; }
   };
 
-  // Try the whole quote, then progressively shorter prefixes.
   const words = needle.split(" ");
   const sizes = [...new Set([
     words.length,
@@ -492,7 +650,8 @@ $("saveRecord").addEventListener("click", async () => {
     renderRecordTabs();
     renderFields();
     toast(updated.n_changes ? `已保存 ${updated.n_changes} 处修改` : "已保存");
-    loadStatus();
+    await loadPapers();
+    await loadStatus();
   } catch (error) { toast(error.message, "err"); }
 });
 
@@ -500,6 +659,172 @@ $("exportJsonl").addEventListener("click", () =>
   window.open(S.paper ? `/api/export?fmt=jsonl&paper_fk=${S.paper.id}` : "/api/export?fmt=jsonl"));
 $("exportCsv").addEventListener("click", () =>
   window.open(S.paper ? `/api/export?fmt=csv&paper_fk=${S.paper.id}` : "/api/export?fmt=csv"));
+
+/* ------------------------------------------------------------------ */
+/* compare (样品对比)                                                  */
+/* ------------------------------------------------------------------ */
+
+/** 归一化后再比较：避免大小写、空白、全角差异造成假“差异项”。 */
+function normValue(value) {
+  if (value === null || value === undefined || value === "") return "";
+  return String(value).trim().toLowerCase().replace(/\s+/g, " ");
+}
+
+async function loadCompare() {
+  let data;
+  try { data = await api("/api/search"); }
+  catch (error) { toast(error.message, "err"); return; }
+
+  S.compareRows = data.results;
+  // 默认选中前若干条，演示时打开即有内容
+  if (!S.compareSel.size) {
+    S.compareRows.slice(0, Math.min(4, S.compareRows.length))
+      .forEach((r) => S.compareSel.add(r.record_id));
+  } else {
+    const valid = new Set(S.compareRows.map((r) => r.record_id));
+    [...S.compareSel].forEach((id) => { if (!valid.has(id)) S.compareSel.delete(id); });
+  }
+  renderPickList();
+  renderCompare();
+}
+
+function renderPickList() {
+  const box = $("pickList");
+  if (!S.compareRows.length) {
+    box.innerHTML = '<div class="placeholder">还没有抽取记录。</div>';
+    return;
+  }
+  // 按论文分组，跨论文选取时结构清楚
+  const groups = new Map();
+  S.compareRows.forEach((r) => {
+    if (!groups.has(r.paper_key)) groups.set(r.paper_key, { title: r.paper_title, items: [] });
+    groups.get(r.paper_key).items.push(r);
+  });
+
+  box.innerHTML = [...groups.entries()].map(([key, group]) => `
+    <div class="pick-group">
+      <div class="pick-group-head">${esc(key)}</div>
+      <div class="pick-group-title" title="${esc(group.title)}">${esc(group.title)}</div>
+      ${group.items.map((r) => {
+        const hint = r.fields.mesostructure || r.fields.surfactant || "—";
+        return `
+        <label class="pick-item ${S.compareSel.has(r.record_id) ? "on" : ""}"
+               data-rid="${esc(r.record_id)}">
+          <input type="checkbox" ${S.compareSel.has(r.record_id) ? "checked" : ""} />
+          <span class="pick-name">r${String(r.record_index).padStart(2, "0")}</span>
+          <span class="pick-hint" title="${esc(hint)}">${esc(hint)}</span>
+        </label>`;
+      }).join("")}
+    </div>`).join("");
+}
+
+$("pickList").addEventListener("change", (event) => {
+  const item = event.target.closest(".pick-item");
+  if (!item) return;
+  const rid = item.dataset.rid;
+  if (event.target.checked) S.compareSel.add(rid); else S.compareSel.delete(rid);
+  item.classList.toggle("on", event.target.checked);
+  renderCompare();
+});
+
+$("pickAll").addEventListener("click", () => {
+  S.compareRows.forEach((r) => S.compareSel.add(r.record_id));
+  renderPickList(); renderCompare();
+});
+$("pickNone").addEventListener("click", () => {
+  S.compareSel.clear();
+  renderPickList(); renderCompare();
+});
+$("diffOnly").addEventListener("change", renderCompare);
+
+function selectedRecords() {
+  return S.compareRows.filter((r) => S.compareSel.has(r.record_id));
+}
+
+/** 条件矩阵：行=字段，列=样品；逐行判断是否所有样品取值一致。 */
+function renderCompare() {
+  const picked = selectedRecords();
+  const body = $("compareBody");
+  const legend = $("compareLegend");
+
+  if (picked.length < 2) {
+    legend.hidden = true;
+    body.innerHTML = '<div class="placeholder">在左侧勾选 2 条以上记录，这里会生成条件矩阵并高亮差异项。</div>';
+    return;
+  }
+  legend.hidden = false;
+
+  const rows = S.fields.map((f) => {
+    const values = picked.map((r) => r.fields[f.key]);
+    const distinct = new Set(values.map(normValue));
+    // 全为空不算差异，也不算有效共同条件
+    const allEmpty = [...distinct].every((v) => v === "");
+    return { field: f, values, diff: distinct.size > 1, allEmpty, distinct: distinct.size };
+  });
+
+  const diffRows = rows.filter((r) => r.diff);
+  const sameRows = rows.filter((r) => !r.diff && !r.allEmpty);
+  const shown = $("diffOnly").checked ? diffRows : rows;
+
+  const header = `
+    <thead>
+      <tr>
+        <th class="field-col">字段</th>
+        ${picked.map((r) => `
+          <th>
+            <span class="ch-key">${esc(r.paper_key)} · r${String(r.record_index).padStart(2, "0")}</span>
+            <span class="ch-title" title="${esc(r.paper_title)}">${esc(r.paper_title)}</span>
+          </th>`).join("")}
+      </tr>
+    </thead>`;
+
+  const bodyRows = shown.map((row) => `
+    <tr class="${row.diff ? "row-diff" : ""}">
+      <th class="field-col">
+        ${esc(row.field.label)}${row.diff ? `<span class="diff-tag">${row.distinct} 种</span>` : ""}
+      </th>
+      ${row.values.map((value) => `
+        <td class="${row.diff ? "cell-diff" : ""}">
+          ${value ? esc(value) : '<span class="null">未报道</span>'}
+        </td>`).join("")}
+    </tr>`).join("");
+
+  const summary = `
+    <div class="compare-summary">
+      已选 ${picked.length} 条样品 ·
+      <b>${diffRows.length} 个差异项</b>（${diffRows.map((r) => esc(r.field.label)).join("、") || "无"}） ·
+      <em>${sameRows.length} 个共同条件</em>
+    </div>`;
+
+  body.innerHTML = summary +
+    `<table class="compare-table">${header}<tbody>${bodyRows}</tbody></table>`;
+}
+
+$("exportCompare").addEventListener("click", () => {
+  const picked = selectedRecords();
+  if (picked.length < 2) { toast("请先勾选至少 2 条记录", "warn"); return; }
+
+  const header = ["字段", ...picked.map((r) => `${r.paper_key}_r${String(r.record_index).padStart(2, "0")}`), "是否差异项"];
+  const lines = [header];
+  S.fields.forEach((f) => {
+    const values = picked.map((r) => r.fields[f.key] ?? "");
+    const diff = new Set(values.map(normValue)).size > 1;
+    lines.push([f.label, ...values, diff ? "差异" : "一致"]);
+  });
+
+  const csv = lines
+    .map((row) => row.map((cell) => `"${String(cell).replace(/"/g, '""')}"`).join(","))
+    .join("\r\n");
+  // BOM 让 Excel 正确识别 UTF-8
+  const blob = new Blob(["\ufeff" + csv], { type: "text/csv;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = "sample-comparison.csv";
+  link.click();
+  URL.revokeObjectURL(url);
+  toast(`已导出 ${picked.length} 条样品的对比表`);
+});
 
 /* ------------------------------------------------------------------ */
 /* cross-paper search                                                  */

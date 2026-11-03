@@ -13,7 +13,7 @@ for extra in (ROOT, ROOT / "src"):
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="MesoScope web app")
+    parser = argparse.ArgumentParser(description="化学文献信息提取 web app")
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", type=int, default=8000)
     parser.add_argument("--reload", action="store_true")
@@ -21,7 +21,7 @@ def main() -> int:
 
     import uvicorn
 
-    print(f"MesoScope -> http://{args.host}:{args.port}")
+    print(f"化学文献信息提取 -> http://{args.host}:{args.port}")
     uvicorn.run(
         "webapp.app.main:app",
         host=args.host,

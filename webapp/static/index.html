@@ -1,9 +1,9 @@
 <!DOCTYPE html>
-<html lang="zh-CN">
+<html lang="zh-CN" data-theme="dark">
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>MesoScope · 介孔材料合成条件抽取平台</title>
+<title>化学文献信息提取</title>
 <link rel="stylesheet" href="/static/style.css" />
 </head>
 <body>
@@ -11,10 +11,10 @@
 
   <aside class="sidebar">
     <div class="brand">
-      <div class="brand-mark">MS</div>
+      <div class="brand-mark">CE</div>
       <div class="brand-text">
-        <strong>MesoScope</strong>
-        <span>介孔材料合成条件抽取</span>
+        <strong>化学文献信息提取</strong>
+        <span>介孔材料合成条件</span>
       </div>
     </div>
 
@@ -23,7 +23,10 @@
         <span class="nav-ico">■</span><span>文献库</span>
       </button>
       <button class="nav-item" data-view="review">
-        <span class="nav-ico">▦</span><span>复核工作台</span>
+        <span class="nav-ico">▦</span><span>提取结果</span>
+      </button>
+      <button class="nav-item" data-view="compare">
+        <span class="nav-ico">⇄</span><span>样品对比</span>
       </button>
       <button class="nav-item" data-view="search">
         <span class="nav-ico">▼</span><span>跨论文检索</span>
@@ -42,6 +45,9 @@
         <p id="engineHint">正在读取抽取引擎状态</p>
       </div>
       <div class="stat-grid" id="statGrid"></div>
+      <button class="theme-btn" id="themeToggle" title="切换主题">
+        <span id="themeIcon">☾</span><span id="themeLabel">夜间模式</span>
+      </button>
     </div>
   </aside>
 
@@ -65,7 +71,44 @@
         <strong>把 PDF 拖到这里</strong>
         <span>解析后即可创建抽取任务；支持多选上传</span>
       </div>
-      <div class="paper-grid" id="paperGrid"></div>
+
+      <!-- 进行中的任务单独成组，带百分比与阶段文字 -->
+      <section class="lib-group" id="groupRunning" hidden>
+        <div class="group-head">
+          <span class="group-dot busy"></span>
+          <h2>正在抽取 <em id="runningCount">0</em></h2>
+          <span class="group-note">处理完成后会自动移入下方“已完成”</span>
+        </div>
+        <div class="running-list" id="runningList"></div>
+      </section>
+
+      <section class="lib-group" id="groupDone" hidden>
+        <div class="group-head">
+          <span class="group-dot ok"></span>
+          <h2>已完成 <em id="doneCount">0</em></h2>
+          <span class="group-note">点击“提取结果”查看字段与原文定位</span>
+        </div>
+        <div class="paper-grid" id="doneGrid"></div>
+      </section>
+
+      <section class="lib-group" id="groupPending" hidden>
+        <div class="group-head">
+          <span class="group-dot idle"></span>
+          <h2>待抽取 <em id="pendingCount">0</em></h2>
+          <span class="group-note">已解析入库，尚未运行抽取任务</span>
+        </div>
+        <div class="paper-grid" id="pendingGrid"></div>
+      </section>
+
+      <section class="lib-group" id="groupFailed" hidden>
+        <div class="group-head">
+          <span class="group-dot err"></span>
+          <h2>抽取失败 <em id="failedCount">0</em></h2>
+          <span class="group-note">可查看原因后重新抽取</span>
+        </div>
+        <div class="paper-grid" id="failedGrid"></div>
+      </section>
+
       <div class="empty" id="libraryEmpty" hidden>
         <strong>文献库是空的</strong>
         <p>上传一篇介孔材料合成论文，或点击下方按钮载入内置演示数据。</p>
@@ -75,13 +118,13 @@
 
     <section class="view" id="view-review">
       <div class="review-head">
-        <select id="reviewPaper" class="select"></select>
-        <div class="review-meta" id="reviewMeta"></div>
+        <div class="paper-switch" id="paperSwitch"></div>
         <div class="review-tools">
           <button class="btn" id="exportJsonl">导出 JSONL</button>
           <button class="btn" id="exportCsv">导出 CSV</button>
         </div>
       </div>
+      <div class="review-meta" id="reviewMeta"></div>
       <div class="workbench">
         <div class="panel pdf-panel">
           <div class="panel-head">
@@ -113,6 +156,37 @@
               <input type="checkbox" id="reviewedFlag" /> 标记为已复核
             </label>
             <button class="btn primary" id="saveRecord">保存修改</button>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="view" id="view-compare">
+      <div class="compare-layout">
+        <div class="panel pick-panel">
+          <div class="panel-head">
+            <span>选择样品</span>
+            <div class="pick-tools">
+              <button class="btn sm" id="pickAll">全选</button>
+              <button class="btn sm" id="pickNone">清空</button>
+            </div>
+          </div>
+          <div class="pick-list" id="pickList"></div>
+        </div>
+        <div class="panel compare-panel">
+          <div class="panel-head">
+            <span>并排比较</span>
+            <div class="compare-tools">
+              <label class="check"><input type="checkbox" id="diffOnly" /> 只看差异项</label>
+              <button class="btn sm" id="exportCompare">导出对比 CSV</button>
+            </div>
+          </div>
+          <div class="compare-legend" id="compareLegend" hidden>
+            <span><i class="sw-diff"></i>差异项（各样品取值不同）</span>
+            <span><i class="sw-same"></i>共同条件（全部一致）</span>
+          </div>
+          <div class="compare-body" id="compareBody">
+            <div class="placeholder">在左侧勾选 2 条以上记录，这里会生成条件矩阵并高亮差异项。</div>
           </div>
         </div>
       </div>
