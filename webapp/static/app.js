@@ -5,6 +5,7 @@
 const S = {
   status: null,
   fields: [],
+  modes: [],
   papers: [],
   paper: null,          // full payload of the paper open in the review view
   recordIndex: 0,
@@ -16,6 +17,7 @@ const S = {
   picked: new Set(),     // 批量操作选中的 paper id
   compareRows: [],      // all records available for comparison
   compareSel: new Set(),// selected record_id set
+  settings: null,       // /api/settings/llm payload
 };
 
 const $ = (id) => document.getElementById(id);
@@ -26,7 +28,7 @@ async function api(path, options = {}) {
   const response = await fetch(path, options);
   if (!response.ok) {
     let detail = `HTTP ${response.status}`;
-    try { detail = (await response.json()).error || detail; } catch (_) {}
+    try { detail = (await response.json()).error || detail; } catch (_) { }
     throw new Error(detail);
   }
   return response.status === 204 ? null : response.json();
@@ -51,7 +53,7 @@ function applyTheme(name) {
   const dark = name === "dark";
   $("themeIcon").textContent = dark ? "☾" : "☀";
   $("themeLabel").textContent = dark ? "夜间模式" : "白天模式";
-  try { localStorage.setItem(THEME_KEY, name); } catch (_) {}
+  try { localStorage.setItem(THEME_KEY, name); } catch (_) { }
 }
 
 $("themeToggle").addEventListener("click", () => {
@@ -60,7 +62,7 @@ $("themeToggle").addEventListener("click", () => {
 
 (function initTheme() {
   let saved = null;
-  try { saved = localStorage.getItem(THEME_KEY); } catch (_) {}
+  try { saved = localStorage.getItem(THEME_KEY); } catch (_) { }
   if (!saved) {
     const prefersLight = window.matchMedia
       && window.matchMedia("(prefers-color-scheme: light)").matches;
@@ -106,13 +108,16 @@ $("nav").addEventListener("click", (event) => {
 async function loadStatus() {
   S.status = await api("/api/status");
   S.fields = S.status.fields;
+  S.modes = S.status.modes || [];
 
   const llm = S.status.llm;
   $("engineDot").className = `dot ${llm.available ? "on" : "off"}`;
-  $("engineName").textContent = llm.available ? "LLM Agent 就绪" : "规则引擎模式";
+  $("engineName").textContent = llm.available ? "AI 抽取已就绪" : "离线规则模式";
   $("engineHint").textContent = llm.available
-    ? `${llm.model} · anchored 模式（全文候选 + 工具审核）`
-    : "未配置 API Key，使用确定性规则引擎抽取，功能完整可用";
+    ? `正在使用 ${llm.model} · AI 会通读全文并逐页核对`
+    : "未连接 AI 服务，当前用内置关键词规则抽取：功能完整，但字段较少";
+  $("openSettings").textContent = llm.available ? "⚙ 更换 AI 服务" : "⚙ 连接 AI 服务";
+  $("openSettings").classList.toggle("call", !llm.available);
 
   const c = S.status.counts;
   $("statGrid").innerHTML = `
@@ -125,7 +130,62 @@ async function loadStatus() {
   if (fieldSelect.options.length <= 1) {
     S.fields.forEach((f) => fieldSelect.add(new Option(f.label, f.key)));
   }
+
+  renderModeSelect($("bulkMode"));
+  syncBulkHint();
 }
+
+/* ------------------------------------------------------------------ */
+/* extraction modes                                                    */
+/* ------------------------------------------------------------------ */
+
+/** 下拉里直接写清每种方式做什么，并标注是否需要 AI。 */
+function modeOptionText(mode) {
+  const need = mode.needs_llm ? "需 AI" : "无需 AI";
+  return `${mode.value} · ${mode.label} · ${mode.summary}（${need}，${mode.speed}）`;
+}
+
+function defaultMode() {
+  const llmReady = S.status && S.status.llm && S.status.llm.available;
+  if (!llmReady) return "rules";
+  const recommended = S.modes.find((m) => m.recommended);
+  return recommended ? recommended.value : "anchored";
+}
+
+/** 渲染一个抽取方式下拉；选项文本自带说明，悬停可看更详细解释。 */
+function renderModeSelect(select, selected = null) {
+  if (!select || !S.modes.length) return;
+  const want = selected || select.value || defaultMode();
+  select.innerHTML = S.modes.map((mode) => {
+    const unavailable = mode.needs_llm && !(S.status.llm && S.status.llm.available);
+    const suffix = unavailable ? "（未连接 AI，将自动改用离线规则）" : "";
+    return `<option value="${mode.value}" title="${esc(mode.summary)} ${esc(mode.detail)}">
+      ${esc(modeOptionText(mode))}${esc(suffix)}
+    </option>`;
+  }).join("");
+  select.value = S.modes.some((m) => m.value === want) ? want : defaultMode();
+}
+
+function modeOf(value) {
+  return S.modes.find((m) => m.value === value) || null;
+}
+
+/** 批量栏下方的一句话解释，随所选方式变化。 */
+function syncBulkHint() {
+  const hint = $("bulkHint");
+  const mode = modeOf($("bulkMode").value);
+  if (!mode) { hint.hidden = true; return; }
+  const llmReady = S.status && S.status.llm && S.status.llm.available;
+  hint.hidden = false;
+  hint.innerHTML = mode.needs_llm && !llmReady
+    ? `当前选择「${esc(mode.short)}」需要 AI，但还没连接 AI 服务，系统会自动改用离线规则。`
+    + ` <a href="#" id="bulkHintLink">现在连接 →</a>`
+    : `「${esc(mode.short)}」：${esc(mode.detail)}`;
+  const link = $("bulkHintLink");
+  if (link) link.addEventListener("click", (e) => { e.preventDefault(); openSettings(); });
+}
+
+$("bulkMode").addEventListener("change", syncBulkHint);
 
 /* ------------------------------------------------------------------ */
 /* library: grouped by extraction state                                */
@@ -207,12 +267,7 @@ function paperCardHtml(paper, group) {
     </div>
     ${group === "failed" && job ? `<div class="paper-err">${esc(job.message || "未知错误")}</div>` : ""}
     <div class="paper-actions">
-      <select class="select sm" data-mode="${paper.id}" title="抽取模式">
-        <option value="anchored">anchored</option>
-        <option value="oneshot">oneshot</option>
-        <option value="agent">agent</option>
-        <option value="rules">rules</option>
-      </select>
+      <select class="select sm" data-mode="${paper.id}" title="抽取方式"></select>
       <button class="btn sm" data-act="run">${group === "done" ? "重抽" : "抽取"}</button>
       <button class="btn sm" data-act="open" ${paper.n_records ? "" : "disabled"}>结果</button>
       <button class="btn sm danger" data-act="del">删除</button>
@@ -267,6 +322,11 @@ function renderLibrary() {
   fill("pending", "groupPending", "pendingGrid", "pendingCount");
   fill("failed", "groupFailed", "failedGrid", "failedCount");
 
+  // 卡片是字符串拼出来的，下拉选项在挂载后统一填充，保持说明文案单一来源
+  document.querySelectorAll("[data-mode]").forEach((select) => {
+    if (select.id !== "bulkMode") renderModeSelect(select);
+  });
+
   syncBulkBar();
 }
 
@@ -319,6 +379,8 @@ function handlePickChange(event) {
 
 async function runBatch(ids, mode) {
   if (!ids.length) return;
+  const meta = modeOf(mode);
+  const name = meta ? meta.short : mode;
   try {
     const result = await api("/api/jobs/batch", {
       method: "POST",
@@ -327,7 +389,7 @@ async function runBatch(ids, mode) {
     });
     const queued = result.queued || [];
     toast(queued.length
-      ? `已排队 ${queued.length} 个任务（${mode}），进度见“正在抽取”`
+      ? `已排队 ${queued.length} 个任务（${name}），进度见“正在抽取”`
       : "没有新任务被排队");
     (result.skipped || []).forEach((item) =>
       toast(`跳过 ${item.paper_fk}：${item.reason}`, "warn"));
@@ -375,13 +437,14 @@ async function handleCardAction(event) {
 
   if (button.dataset.act === "run") {
     const mode = card.querySelector(`[data-mode="${id}"]`).value;
+    const meta = modeOf(mode);
     try {
       const job = await api("/api/jobs", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ paper_fk: id, mode }),
       });
-      toast(`任务已创建（${mode}），进度显示在“正在抽取”`);
+      toast(`任务已创建（${meta ? meta.short : mode}），进度显示在“正在抽取”`);
       await loadPapers();
       pollJob(job.id);
     } catch (error) { toast(error.message, "err"); }
@@ -504,6 +567,188 @@ $("seedBtn").addEventListener("click", async () => {
     toast("演示数据已载入，抽取进度见“正在抽取”");
     await loadPapers(); await loadStatus();
   } catch (error) { toast(error.message, "err"); }
+});
+
+/* ------------------------------------------------------------------ */
+/* AI service settings                                                 */
+/* ------------------------------------------------------------------ */
+
+function settingResult(message, kind) {
+  const box = $("settingResult");
+  box.hidden = false;
+  box.className = `setting-result ${kind}`;
+  box.textContent = message;
+}
+
+function clearSettingResult() {
+  $("settingResult").hidden = true;
+}
+
+function renderSettingState() {
+  const s = S.settings;
+  const box = $("settingState");
+  if (!s) { box.innerHTML = ""; return; }
+  if (s.has_key) {
+    const source = s.key_source === "env"
+      ? "（来自系统环境变量，保存后将以配置文件为准）"
+      : s.key_source === "legacy"
+        ? "（来自旧变量 OPENCODE_GO_API_KEY）"
+        : "";
+    box.className = "setting-state ok";
+    box.innerHTML = `<b>✓ 已连接 AI 服务</b>
+      <span>当前密钥 <code>${esc(s.key_masked)}</code> ${esc(source)}</span>
+      <span>模型 <code>${esc(s.model)}</code></span>`;
+  } else {
+    box.className = "setting-state warn";
+    box.innerHTML = `<b>！尚未连接 AI 服务</b>
+      <span>现在抽取会使用离线关键词规则，字段较少。填入密钥即可启用 AI。</span>`;
+  }
+  $("settingClear").hidden = !s.has_key;
+}
+
+/** 选中服务商后自动回填地址与模型，用户只需粘贴密钥。 */
+function applyPreset(id) {
+  const preset = (S.settings.presets || []).find((p) => p.id === id);
+  if (!preset) return;
+  $("providerHint").textContent = preset.hint || "";
+  if (preset.id === "custom") {
+    $("settingAdv").open = true;
+    return;
+  }
+  $("settingBaseUrl").value = preset.base_url;
+  $("settingModel").value = preset.model;
+}
+
+function matchPresetId(baseUrl) {
+  const found = (S.settings.presets || [])
+    .find((p) => p.base_url && p.base_url === String(baseUrl || "").replace(/\/+$/, ""));
+  return found ? found.id : "custom";
+}
+
+async function openSettings() {
+  clearSettingResult();
+  $("settingKey").value = "";
+  $("settingKey").type = "password";
+  try {
+    S.settings = await api("/api/settings/llm");
+  } catch (error) {
+    toast(`读取设置失败：${error.message}`, "err");
+    return;
+  }
+
+  const provider = $("settingProvider");
+  provider.innerHTML = (S.settings.presets || [])
+    .map((p) => `<option value="${esc(p.id)}">${esc(p.label)}</option>`).join("");
+  $("settingBaseUrl").value = S.settings.base_url;
+  $("settingModel").value = S.settings.model;
+  provider.value = matchPresetId(S.settings.base_url);
+  const current = (S.settings.presets || []).find((p) => p.id === provider.value);
+  $("providerHint").textContent = current ? current.hint || "" : "";
+
+  renderSettingState();
+  $("settingsMask").hidden = false;
+}
+
+function closeSettings() { $("settingsMask").hidden = true; }
+
+$("openSettings").addEventListener("click", openSettings);
+$("settingsClose").addEventListener("click", closeSettings);
+$("settingsMask").addEventListener("click", (event) => {
+  if (event.target.id === "settingsMask") closeSettings();
+});
+document.addEventListener("keydown", (event) => {
+  if (event.key === "Escape" && !$("settingsMask").hidden) closeSettings();
+});
+
+$("settingProvider").addEventListener("change", (event) => {
+  clearSettingResult();
+  applyPreset(event.target.value);
+});
+
+$("settingKeyPeek").addEventListener("click", () => {
+  const input = $("settingKey");
+  input.type = input.type === "password" ? "text" : "password";
+});
+
+function settingPayload() {
+  return {
+    api_key: $("settingKey").value,
+    base_url: $("settingBaseUrl").value,
+    model: $("settingModel").value,
+  };
+}
+
+/** 置灰按钮并给出“正在连接”反馈：这一步要真发网络请求，可能等几秒。 */
+async function withBusy(button, label, task) {
+  const original = button.textContent;
+  button.disabled = true;
+  button.textContent = label;
+  try { return await task(); }
+  finally { button.disabled = false; button.textContent = original; }
+}
+
+$("settingTest").addEventListener("click", () =>
+  withBusy($("settingTest"), "连接中…", async () => {
+    clearSettingResult();
+    try {
+      const result = await api("/api/settings/llm/test", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(settingPayload()),
+      });
+      settingResult(result.message, result.ok ? "ok" : "err");
+    } catch (error) { settingResult(error.message, "err"); }
+  }));
+
+$("settingSave").addEventListener("click", () =>
+  withBusy($("settingSave"), "测试并保存中…", async () => {
+    clearSettingResult();
+    try {
+      const result = await api("/api/settings/llm", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ...settingPayload(), test: true }),
+      });
+      S.settings = result.settings;
+      renderSettingState();
+      $("settingKey").value = "";
+      settingResult(
+        `${result.test ? result.test.message + "；" : ""}已保存，现在就可以用 AI 抽取了`,
+        "ok",
+      );
+      toast("AI 服务已连接，无需重启");
+      await loadStatus();
+      renderLibrary();
+    } catch (error) { settingResult(error.message, "err"); }
+  }));
+
+$("settingClear").addEventListener("click", async () => {
+  if (!confirm("清除已保存的密钥？之后抽取会改用离线关键词规则。")) return;
+  try {
+    const result = await api("/api/settings/llm", { method: "DELETE" });
+    S.settings = result.settings;
+    renderSettingState();
+    settingResult("密钥已清除，当前使用离线规则引擎", "ok");
+    await loadStatus();
+    renderLibrary();
+  } catch (error) { settingResult(error.message, "err"); }
+});
+
+/* ------------------------------------------------------------------ */
+/* first-run guide                                                     */
+/* ------------------------------------------------------------------ */
+
+const GUIDE_KEY = "cheminfo-guide-hidden";
+
+(function initGuide() {
+  let hidden = null;
+  try { hidden = localStorage.getItem(GUIDE_KEY); } catch (_) { }
+  if (hidden === "1") $("guideBar").hidden = true;
+})();
+
+$("guideHide").addEventListener("click", () => {
+  $("guideBar").hidden = true;
+  try { localStorage.setItem(GUIDE_KEY, "1"); } catch (_) { }
 });
 
 /* ------------------------------------------------------------------ */
@@ -778,8 +1023,8 @@ function highlightQuote(text, quote) {
     const match = regex.exec(text);
     if (match) {
       return esc(text.slice(0, match.index)) +
-             "<mark>" + esc(match[0]) + "</mark>" +
-             esc(text.slice(match.index + match[0].length));
+        "<mark>" + esc(match[0]) + "</mark>" +
+        esc(text.slice(match.index + match[0].length));
     }
   }
   return esc(text);
@@ -825,7 +1070,7 @@ function formatStamp(iso) {
   const d = new Date(parsed);
   const pad = (n) => String(n).padStart(2, "0");
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} `
-       + `${pad(d.getHours())}:${pad(d.getMinutes())}`;
+    + `${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
 
 function valueHtml(value) {
@@ -938,15 +1183,15 @@ function renderPickList() {
       <div class="pick-group-head">${esc(key)}</div>
       <div class="pick-group-title" title="${esc(group.title)}">${esc(group.title)}</div>
       ${group.items.map((r) => {
-        const hint = r.fields.mesostructure || r.fields.surfactant || "—";
-        return `
+    const hint = r.fields.mesostructure || r.fields.surfactant || "—";
+    return `
         <label class="pick-item ${S.compareSel.has(r.record_id) ? "on" : ""}"
                data-rid="${esc(r.record_id)}">
           <input type="checkbox" ${S.compareSel.has(r.record_id) ? "checked" : ""} />
           <span class="pick-name">r${String(r.record_index).padStart(2, "0")}</span>
           <span class="pick-hint" title="${esc(hint)}">${esc(hint)}</span>
         </label>`;
-      }).join("")}
+  }).join("")}
     </div>`).join("");
 }
 
@@ -1090,12 +1335,12 @@ async function runSearch() {
         <td class="link" data-open="${r.paper_fk}" title="${esc(r.paper_title)}">${esc(r.paper_key)}</td>
         <td>r${String(r.record_index).padStart(2, "0")}</td>
         ${SEARCH_COLUMNS.map((k) => {
-          const value = r.fields[k];
-          const cls = isNumeric(k) ? "num" : "";
-          return value
-            ? `<td class="${cls}" title="${esc(value)}">${esc(value)}</td>`
-            : `<td class="${cls}"><span class="null">—</span></td>`;
-        }).join("")}
+      const value = r.fields[k];
+      const cls = isNumeric(k) ? "num" : "";
+      return value
+        ? `<td class="${cls}" title="${esc(value)}">${esc(value)}</td>`
+        : `<td class="${cls}"><span class="null">—</span></td>`;
+    }).join("")}
       </tr>`).join("")
     : `<tr><td colspan="${SEARCH_COLUMNS.length + 2}"><div class="placeholder">没有符合条件的记录。</div></td></tr>`;
 

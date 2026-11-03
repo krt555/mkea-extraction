@@ -1,293 +1,399 @@
 <!DOCTYPE html>
 <html lang="zh-CN" data-theme="dark">
+
 <head>
-<meta charset="utf-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>化学文献信息提取</title>
-<link rel="stylesheet" href="/static/style.css" />
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>化学文献信息提取</title>
+  <link rel="stylesheet" href="/static/style.css" />
 </head>
+
 <body>
-<div class="app">
+  <div class="app">
 
-  <aside class="sidebar">
-    <div class="brand">
-      <div class="brand-mark">CE</div>
-      <div class="brand-text">
-        <strong>化学文献信息提取</strong>
-        <span>介孔材料合成条件</span>
-      </div>
-    </div>
-
-    <nav class="nav" id="nav">
-      <button class="nav-item active" data-view="library">
-        <span class="nav-ico">■</span><span>文献库</span>
-      </button>
-      <button class="nav-item" data-view="review">
-        <span class="nav-ico">▦</span><span>提取结果</span>
-      </button>
-      <button class="nav-item" data-view="compare">
-        <span class="nav-ico">⇄</span><span>样品对比</span>
-      </button>
-      <button class="nav-item" data-view="search">
-        <span class="nav-ico">▼</span><span>跨论文检索</span>
-      </button>
-      <button class="nav-item" data-view="jobs">
-        <span class="nav-ico">●</span><span>任务与日志</span>
-      </button>
-    </nav>
-
-    <div class="sidebar-foot">
-      <div class="engine-card" id="engineCard">
-        <div class="engine-row">
-          <span class="dot" id="engineDot"></span>
-          <span id="engineName">检测中…</span>
+    <aside class="sidebar">
+      <div class="brand">
+        <div class="brand-mark">CE</div>
+        <div class="brand-text">
+          <strong>化学文献信息提取</strong>
+          <span>介孔材料合成条件</span>
         </div>
-        <p id="engineHint">正在读取抽取引擎状态</p>
-      </div>
-      <div class="stat-grid" id="statGrid"></div>
-      <button class="theme-btn" id="themeToggle" title="切换主题">
-        <span id="themeIcon">☾</span><span id="themeLabel">夜间模式</span>
-      </button>
-    </div>
-  </aside>
-
-  <main class="main">
-    <header class="topbar">
-      <div>
-        <h1 id="viewTitle">文献库</h1>
-        <p id="viewSub">上传论文、创建抽取任务、查看记录数量</p>
-      </div>
-      <div class="topbar-actions">
-        <label class="btn primary" for="fileInput">
-          <span>＋ 上传 PDF</span>
-          <input id="fileInput" type="file" accept="application/pdf" multiple hidden />
-        </label>
-        <button class="btn" id="askToggle">AI 助手</button>
-      </div>
-    </header>
-
-    <section class="view active" id="view-library">
-      <div class="upload-zone" id="uploadZone">
-        <strong>把 PDF 拖到这里</strong>
-        <span>解析后即可创建抽取任务；支持多选上传</span>
       </div>
 
-      <!-- 批量操作栏：面对大量文件时避免逐个点击 -->
-      <div class="bulk-bar" id="bulkBar" hidden>
-        <label class="check">
-          <input type="checkbox" id="bulkSelectAll" /> 全选
-        </label>
-        <span class="bulk-count" id="bulkCount">已选 0 篇</span>
-        <span class="bulk-sep"></span>
-        <select class="select" id="bulkMode" title="批量抽取模式">
-          <option value="anchored">anchored</option>
-          <option value="oneshot">oneshot</option>
-          <option value="agent">agent</option>
-          <option value="rules">rules</option>
+      <nav class="nav" id="nav">
+        <button class="nav-item active" data-view="library">
+          <span class="nav-ico">■</span><span>文献库</span>
+        </button>
+        <button class="nav-item" data-view="review">
+          <span class="nav-ico">▦</span><span>提取结果</span>
+        </button>
+        <button class="nav-item" data-view="compare">
+          <span class="nav-ico">⇄</span><span>样品对比</span>
+        </button>
+        <button class="nav-item" data-view="search">
+          <span class="nav-ico">▼</span><span>跨论文检索</span>
+        </button>
+        <button class="nav-item" data-view="jobs">
+          <span class="nav-ico">●</span><span>任务与日志</span>
+        </button>
+      </nav>
+
+      <div class="sidebar-foot">
+        <div class="engine-card" id="engineCard">
+          <div class="engine-row">
+            <span class="dot" id="engineDot"></span>
+            <span id="engineName">检测中…</span>
+          </div>
+          <p id="engineHint">正在读取抽取引擎状态</p>
+          <button class="engine-setup" id="openSettings">⚙ 连接 AI 服务</button>
+        </div>
+        <div class="stat-grid" id="statGrid"></div>
+        <button class="theme-btn" id="themeToggle" title="切换主题">
+          <span id="themeIcon">☾</span><span id="themeLabel">夜间模式</span>
+        </button>
+      </div>
+    </aside>
+
+    <main class="main">
+      <header class="topbar">
+        <div>
+          <h1 id="viewTitle">文献库</h1>
+          <p id="viewSub">上传论文、创建抽取任务、查看记录数量</p>
+        </div>
+        <div class="topbar-actions">
+          <label class="btn primary" for="fileInput">
+            <span>＋ 上传 PDF</span>
+            <input id="fileInput" type="file" accept="application/pdf" multiple hidden />
+          </label>
+          <button class="btn" id="askToggle">AI 助手</button>
+        </div>
+      </header>
+
+      <section class="view active" id="view-library">
+        <!-- 首次使用的三步指引：新手最容易卡在“上传完之后该干什么” -->
+        <div class="guide-bar" id="guideBar">
+          <div class="guide-step"><b>1</b><span>上传 PDF</span><em>英文化学论文，可一次选多篇</em></div>
+          <div class="guide-arrow">→</div>
+          <div class="guide-step"><b>2</b><span>选抽取方式并开始</span><em>不确定就用「推荐」那一项</em></div>
+          <div class="guide-arrow">→</div>
+          <div class="guide-step"><b>3</b><span>到「提取结果」核对</span><em>点字段可跳到原文验证</em></div>
+          <button class="guide-hide" id="guideHide" title="不再显示">×</button>
+        </div>
+
+        <div class="upload-zone" id="uploadZone">
+          <strong>把 PDF 拖到这里</strong>
+          <span>解析后即可创建抽取任务；支持多选上传</span>
+        </div>
+
+        <!-- 批量操作栏：面对大量文件时避免逐个点击 -->
+        <div class="bulk-bar" id="bulkBar" hidden>
+          <label class="check">
+            <input type="checkbox" id="bulkSelectAll" /> 全选
+          </label>
+          <span class="bulk-count" id="bulkCount">已选 0 篇</span>
+          <span class="bulk-sep"></span>
+          <span class="bulk-label">抽取方式</span>
+          <select class="select" id="bulkMode" title="批量抽取方式"></select>
+          <button class="btn primary" id="bulkRun" disabled>一键抽取</button>
+          <button class="btn" id="bulkRunPending" title="只抽取尚未抽取的论文">抽取全部待抽取</button>
+          <button class="btn danger" id="bulkDelete" disabled>一键删除</button>
+        </div>
+        <p class="bulk-hint" id="bulkHint" hidden></p>
+
+        <!-- 进行中的任务单独成组，带百分比与阶段文字 -->
+        <section class="lib-group" id="groupRunning" hidden>
+          <div class="group-head">
+            <span class="group-dot busy"></span>
+            <h2>正在抽取 <em id="runningCount">0</em></h2>
+            <span class="group-note">处理完成后会自动移入下方“已完成”</span>
+          </div>
+          <div class="running-list" id="runningList"></div>
+        </section>
+
+        <section class="lib-group" id="groupDone" hidden>
+          <div class="group-head">
+            <span class="group-dot ok"></span>
+            <h2>已完成 <em id="doneCount">0</em></h2>
+            <span class="group-note">点击“提取结果”查看字段与原文定位</span>
+          </div>
+          <div class="paper-grid" id="doneGrid"></div>
+        </section>
+
+        <section class="lib-group" id="groupPending" hidden>
+          <div class="group-head">
+            <span class="group-dot idle"></span>
+            <h2>待抽取 <em id="pendingCount">0</em></h2>
+            <span class="group-note">已解析入库，尚未运行抽取任务</span>
+          </div>
+          <div class="paper-grid" id="pendingGrid"></div>
+        </section>
+
+        <section class="lib-group" id="groupFailed" hidden>
+          <div class="group-head">
+            <span class="group-dot err"></span>
+            <h2>抽取失败 <em id="failedCount">0</em></h2>
+            <span class="group-note">可查看原因后重新抽取</span>
+          </div>
+          <div class="paper-grid" id="failedGrid"></div>
+        </section>
+
+        <div class="empty" id="libraryEmpty" hidden>
+          <strong>文献库是空的</strong>
+          <p>上传一篇介孔材料合成论文，或点击下方按钮载入内置演示数据。</p>
+          <button class="btn primary" id="seedBtn">载入演示数据</button>
+          <p class="empty-note">演示数据会自动生成 3 篇示例论文并跑完整流程，不需要 API Key，也不会覆盖你自己的文件。</p>
+        </div>
+      </section>
+
+      <section class="view" id="view-review">
+        <div class="review-head">
+          <!-- 候选区默认只显示一行，超出折叠 -->
+          <div class="paper-switch collapsed" id="paperSwitch"></div>
+          <button class="btn sm switch-more" id="switchMore" hidden></button>
+          <div class="review-tools">
+            <button class="btn" id="historyToggle">修改历史</button>
+            <button class="btn" id="exportJsonl" title="JSONL：机器可读格式，用于回灌评测程序">导出 JSONL</button>
+            <button class="btn" id="exportCsv" title="CSV：可直接用 Excel 打开的表格">导出 CSV</button>
+          </div>
+        </div>
+        <div class="review-meta" id="reviewMeta"></div>
+        <div class="workbench">
+          <div class="panel pdf-panel">
+            <div class="panel-head">
+              <span>原文定位</span>
+              <div class="page-nav">
+                <button class="icon-btn" id="pagePrev">‹</button>
+                <span id="pageLabel">— / —</span>
+                <button class="icon-btn" id="pageNext">›</button>
+              </div>
+            </div>
+            <div class="evidence-box" id="evidenceBox" hidden>
+              <div class="evidence-label">当前字段证据</div>
+              <p id="evidenceQuote"></p>
+            </div>
+            <div class="page-text" id="pageText">
+              <div class="placeholder">在右侧点击任意字段，这里会跳转到证据所在页并高亮引文。</div>
+            </div>
+          </div>
+          <div class="panel field-panel">
+            <div class="panel-head">
+              <span>抽取记录</span>
+              <div class="record-tabs" id="recordTabs"></div>
+            </div>
+            <p class="panel-tip">
+              每行一个字段。<b>p.3</b> 这样的蓝色标签表示这个值来自原文第 3 页，点一下左边就会跳过去并高亮原句；
+              <b>百分数</b>是 AI 对该值的把握程度。值写着「null（未报道）」说明论文里没提到，不是出错。
+              改完记得点右下角<b>保存修改</b>。
+            </p>
+            <div class="field-list" id="fieldList">
+              <div class="placeholder">选择一篇已完成抽取的论文。</div>
+            </div>
+            <div class="history-box" id="historyBox" hidden>
+              <div class="history-head">
+                <span>修改历史 <em id="historyCount">0</em></span>
+                <button class="icon-btn" id="historyClose">×</button>
+              </div>
+              <div class="history-list" id="historyList"></div>
+            </div>
+            <div class="panel-foot" id="reviewFoot" hidden>
+              <label class="check" title="仅作为人工标记，方便筛选和分工，不会改动字段内容">
+                <input type="checkbox" id="reviewedFlag" /> 标记为已复核
+              </label>
+              <button class="btn primary" id="saveRecord">保存修改</button>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="view" id="view-compare">
+        <div class="compare-layout">
+          <div class="panel pick-panel">
+            <div class="panel-head">
+              <span>选择样品</span>
+              <div class="pick-tools">
+                <button class="btn sm" id="pickAll">全选</button>
+                <button class="btn sm" id="pickNone">清空</button>
+              </div>
+            </div>
+            <p class="panel-tip">
+              一篇论文可能合成了多个样品，每个样品是一条记录（<b>r01</b>、<b>r02</b>…）。
+              勾选想对比的几条，右侧会自动排成表格。
+            </p>
+            <div class="pick-list" id="pickList"></div>
+          </div>
+          <div class="panel compare-panel">
+            <div class="panel-head">
+              <span>并排比较</span>
+              <div class="compare-tools">
+                <label class="check" title="只保留各样品取值不同的字段，便于看出变量"><input type="checkbox" id="diffOnly" /> 只看差异项</label>
+                <button class="btn sm" id="exportCompare">导出对比 CSV</button>
+              </div>
+            </div>
+            <div class="compare-legend" id="compareLegend" hidden>
+              <span><i class="sw-diff"></i>差异项（各样品取值不同）</span>
+              <span><i class="sw-same"></i>共同条件（全部一致）</span>
+            </div>
+            <div class="compare-body" id="compareBody">
+              <div class="placeholder">在左侧勾选 2 条以上记录，这里会生成条件矩阵并高亮差异项。</div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="view" id="view-search">
+        <div class="filter-bar">
+          <input class="input grow" id="searchQ" placeholder="字段值关键词，例如 P123、cubic、TEOS" />
+          <select class="select" id="searchField" title="默认在全部字段里找；选定某个字段可缩小范围">
+            <option value="">全部字段</option>
+          </select>
+          <div class="range">
+            <span>比表面积</span>
+            <input class="input tiny" id="saMin" placeholder="≥" inputmode="decimal" title="最小值，单位 m²/g" />
+            <input class="input tiny" id="saMax" placeholder="≤" inputmode="decimal" title="最大值，单位 m²/g" />
+          </div>
+          <div class="range">
+            <span>孔径</span>
+            <input class="input tiny" id="poreMin" placeholder="≥" inputmode="decimal" title="最小值，单位 nm" />
+            <input class="input tiny" id="poreMax" placeholder="≤" inputmode="decimal" title="最大值，单位 nm" />
+          </div>
+          <label class="check" title="只显示已被人工标记为「已复核」的记录"><input type="checkbox" id="reviewedOnly" /> 仅已复核</label>
+          <button class="btn primary" id="searchBtn">检索</button>
+        </div>
+        <p class="view-tip">
+          跨全部论文筛选合成条件。关键词留空、只填数值区间也可以检索；
+          比表面积单位 <b>m²/g</b>，孔径单位 <b>nm</b>。点结果里的论文编号可直接跳去核对原文。
+        </p>
+        <div class="search-summary" id="searchSummary"></div>
+        <div class="table-wrap">
+          <table class="data-table" id="searchTable">
+            <thead></thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      </section>
+
+      <section class="view" id="view-jobs">
+        <p class="view-tip">
+          每次抽取的运行记录。<b>引擎</b>显示这次实际用的是 AI 还是离线规则：
+          出现 <code>rules</code> 说明当次没用上 AI（没配密钥或调用失败），具体原因写在<b>提示</b>一列，鼠标悬停可看全文。
+        </p>
+        <div class="table-wrap">
+          <table class="data-table" id="jobTable">
+            <thead>
+              <tr>
+                <th>#</th>
+                <th>论文</th>
+                <th>状态</th>
+                <th>引擎</th>
+                <th>模型</th>
+                <th>记录</th>
+                <th>提示</th>
+                <th>时间</th>
+              </tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      </section>
+    </main>
+
+    <aside class="ask-panel" id="askPanel">
+      <div class="ask-head">
+        <div>
+          <strong>AI 助手</strong>
+          <span id="askScopeLabel">全部论文</span>
+        </div>
+        <button class="icon-btn" id="askClose">></button>
+      </div>
+      <div class="ask-scope">
+        <select class="select" id="askScope">
+          <option value="">全部论文</option>
         </select>
-        <button class="btn primary" id="bulkRun" disabled>一键抽取</button>
-        <button class="btn" id="bulkRunPending" title="只抽取尚未抽取的论文">抽取全部待抽取</button>
-        <button class="btn danger" id="bulkDelete" disabled>一键删除</button>
       </div>
-
-      <!-- 进行中的任务单独成组，带百分比与阶段文字 -->
-      <section class="lib-group" id="groupRunning" hidden>
-        <div class="group-head">
-          <span class="group-dot busy"></span>
-          <h2>正在抽取 <em id="runningCount">0</em></h2>
-          <span class="group-note">处理完成后会自动移入下方“已完成”</span>
-        </div>
-        <div class="running-list" id="runningList"></div>
-      </section>
-
-      <section class="lib-group" id="groupDone" hidden>
-        <div class="group-head">
-          <span class="group-dot ok"></span>
-          <h2>已完成 <em id="doneCount">0</em></h2>
-          <span class="group-note">点击“提取结果”查看字段与原文定位</span>
-        </div>
-        <div class="paper-grid" id="doneGrid"></div>
-      </section>
-
-      <section class="lib-group" id="groupPending" hidden>
-        <div class="group-head">
-          <span class="group-dot idle"></span>
-          <h2>待抽取 <em id="pendingCount">0</em></h2>
-          <span class="group-note">已解析入库，尚未运行抽取任务</span>
-        </div>
-        <div class="paper-grid" id="pendingGrid"></div>
-      </section>
-
-      <section class="lib-group" id="groupFailed" hidden>
-        <div class="group-head">
-          <span class="group-dot err"></span>
-          <h2>抽取失败 <em id="failedCount">0</em></h2>
-          <span class="group-note">可查看原因后重新抽取</span>
-        </div>
-        <div class="paper-grid" id="failedGrid"></div>
-      </section>
-
-      <div class="empty" id="libraryEmpty" hidden>
-        <strong>文献库是空的</strong>
-        <p>上传一篇介孔材料合成论文，或点击下方按钮载入内置演示数据。</p>
-        <button class="btn primary" id="seedBtn">载入演示数据</button>
-      </div>
-    </section>
-
-    <section class="view" id="view-review">
-      <div class="review-head">
-        <!-- 候选区默认只显示一行，超出折叠 -->
-        <div class="paper-switch collapsed" id="paperSwitch"></div>
-        <button class="btn sm switch-more" id="switchMore" hidden></button>
-        <div class="review-tools">
-          <button class="btn" id="historyToggle">修改历史</button>
-          <button class="btn" id="exportJsonl">导出 JSONL</button>
-          <button class="btn" id="exportCsv">导出 CSV</button>
+      <div class="ask-body" id="askBody">
+        <div class="ask-msg bot">
+          <p>你可以这样问：</p>
+          <div class="chips">
+            <button class="chip">比表面积最高的样品是多少？</button>
+            <button class="chip">用了什么表面活性剂？</button>
+            <button class="chip">煅烧温度和时间是多少？</button>
+          </div>
+          <p class="muted">只依据已上传论文的原文作答，不会凭空编造。每条回答都附带页码引文，点击即可跳到原文。</p>
         </div>
       </div>
-      <div class="review-meta" id="reviewMeta"></div>
-      <div class="workbench">
-        <div class="panel pdf-panel">
-          <div class="panel-head">
-            <span>原文定位</span>
-            <div class="page-nav">
-              <button class="icon-btn" id="pagePrev">‹</button>
-              <span id="pageLabel">— / —</span>
-              <button class="icon-btn" id="pageNext">›</button>
+      <form class="ask-form" id="askForm">
+        <input class="input" id="askInput" placeholder="围绕论文提问…" autocomplete="off" />
+        <button class="btn primary" type="submit">发送</button>
+      </form>
+    </aside>
+
+    <!-- ---------------- AI 服务设置 ---------------- -->
+    <div class="modal-mask" id="settingsMask" hidden>
+      <div class="modal" role="dialog" aria-modal="true" aria-labelledby="settingsTitle">
+        <div class="modal-head">
+          <div>
+            <strong id="settingsTitle">连接 AI 服务</strong>
+            <span>填入密钥后，抽取与问答会由 AI 完成，准确率更高</span>
+          </div>
+          <button class="icon-btn" id="settingsClose">×</button>
+        </div>
+
+        <div class="modal-body">
+          <div class="setting-state" id="settingState"></div>
+
+          <p class="setting-intro">
+            本工具<b>不配密钥也能用</b>（走离线关键词规则）。想让 AI 读论文，就需要一个
+            AI 服务商的 <b>API Key</b>——相当于调用账号的密码，在服务商官网注册后即可获取，通常按用量计费。
+            密钥只保存在你自己电脑的配置文件里，不会上传到任何地方。
+          </p>
+
+          <label class="setting-row">
+            <span class="setting-label">1 · 选择服务商</span>
+            <select class="select" id="settingProvider"></select>
+          </label>
+          <p class="setting-hint" id="providerHint"></p>
+
+          <label class="setting-row">
+            <span class="setting-label">2 · 粘贴 API Key</span>
+            <div class="key-field">
+              <input class="input" id="settingKey" type="password" autocomplete="off" spellcheck="false"
+                placeholder="从服务商官网复制的密钥" />
+              <button class="btn sm" id="settingKeyPeek" type="button" title="显示 / 隐藏">👁</button>
             </div>
-          </div>
-          <div class="evidence-box" id="evidenceBox" hidden>
-            <div class="evidence-label">当前字段证据</div>
-            <p id="evidenceQuote"></p>
-          </div>
-          <div class="page-text" id="pageText">
-            <div class="placeholder">在右侧点击任意字段，这里会跳转到证据所在页并高亮引文。</div>
-          </div>
-        </div>
-        <div class="panel field-panel">
-          <div class="panel-head">
-            <span>抽取记录</span>
-            <div class="record-tabs" id="recordTabs"></div>
-          </div>
-          <div class="field-list" id="fieldList">
-            <div class="placeholder">选择一篇已完成抽取的论文。</div>
-          </div>
-          <div class="history-box" id="historyBox" hidden>
-            <div class="history-head">
-              <span>修改历史 <em id="historyCount">0</em></span>
-              <button class="icon-btn" id="historyClose">×</button>
-            </div>
-            <div class="history-list" id="historyList"></div>
-          </div>
-          <div class="panel-foot" id="reviewFoot" hidden>
-            <label class="check">
-              <input type="checkbox" id="reviewedFlag" /> 标记为已复核
+          </label>
+          <p class="setting-hint">留空表示沿用已保存的密钥（修改模型时不必重新输入）。</p>
+
+          <details class="setting-adv" id="settingAdv">
+            <summary>3 · 接口地址与模型（选服务商后已自动填好，一般不用改）</summary>
+            <label class="setting-row">
+              <span class="setting-label">接口地址</span>
+              <input class="input" id="settingBaseUrl" spellcheck="false" placeholder="https://… 填到 /v1 为止" />
             </label>
-            <button class="btn primary" id="saveRecord">保存修改</button>
-          </div>
-        </div>
-      </div>
-    </section>
+            <label class="setting-row">
+              <span class="setting-label">模型名称</span>
+              <input class="input" id="settingModel" spellcheck="false" placeholder="例如 deepseek-chat" />
+            </label>
+            <p class="setting-hint">
+              地址必须以 http:// 或 https:// 开头，且<b>不要</b>带 /chat/completions。
+              模型名要和服务商文档里的写法完全一致。
+            </p>
+          </details>
 
-    <section class="view" id="view-compare">
-      <div class="compare-layout">
-        <div class="panel pick-panel">
-          <div class="panel-head">
-            <span>选择样品</span>
-            <div class="pick-tools">
-              <button class="btn sm" id="pickAll">全选</button>
-              <button class="btn sm" id="pickNone">清空</button>
-            </div>
-          </div>
-          <div class="pick-list" id="pickList"></div>
+          <div class="setting-result" id="settingResult" hidden></div>
         </div>
-        <div class="panel compare-panel">
-          <div class="panel-head">
-            <span>并排比较</span>
-            <div class="compare-tools">
-              <label class="check"><input type="checkbox" id="diffOnly" /> 只看差异项</label>
-              <button class="btn sm" id="exportCompare">导出对比 CSV</button>
-            </div>
-          </div>
-          <div class="compare-legend" id="compareLegend" hidden>
-            <span><i class="sw-diff"></i>差异项（各样品取值不同）</span>
-            <span><i class="sw-same"></i>共同条件（全部一致）</span>
-          </div>
-          <div class="compare-body" id="compareBody">
-            <div class="placeholder">在左侧勾选 2 条以上记录，这里会生成条件矩阵并高亮差异项。</div>
-          </div>
-        </div>
-      </div>
-    </section>
 
-    <section class="view" id="view-search">
-      <div class="filter-bar">
-        <input class="input grow" id="searchQ" placeholder="字段值关键词，例如 P123、cubic、TEOS" />
-        <select class="select" id="searchField"><option value="">全部字段</option></select>
-        <div class="range">
-          <span>比表面积</span>
-          <input class="input tiny" id="saMin" placeholder="≥" inputmode="decimal" />
-          <input class="input tiny" id="saMax" placeholder="≤" inputmode="decimal" />
+        <div class="modal-foot">
+          <button class="btn danger" id="settingClear" hidden>清除密钥</button>
+          <span class="modal-foot-gap"></span>
+          <button class="btn" id="settingTest">测试连接</button>
+          <button class="btn primary" id="settingSave">测试并保存</button>
         </div>
-        <div class="range">
-          <span>孔径</span>
-          <input class="input tiny" id="poreMin" placeholder="≥" inputmode="decimal" />
-          <input class="input tiny" id="poreMax" placeholder="≤" inputmode="decimal" />
-        </div>
-        <label class="check"><input type="checkbox" id="reviewedOnly" /> 仅已复核</label>
-        <button class="btn primary" id="searchBtn">检索</button>
-      </div>
-      <div class="search-summary" id="searchSummary"></div>
-      <div class="table-wrap">
-        <table class="data-table" id="searchTable">
-          <thead></thead>
-          <tbody></tbody>
-        </table>
-      </div>
-    </section>
-
-    <section class="view" id="view-jobs">
-      <div class="table-wrap">
-        <table class="data-table" id="jobTable">
-          <thead>
-            <tr><th>#</th><th>论文</th><th>状态</th><th>引擎</th><th>模型</th><th>记录</th><th>提示</th><th>时间</th></tr>
-          </thead>
-          <tbody></tbody>
-        </table>
-      </div>
-    </section>
-  </main>
-
-  <aside class="ask-panel" id="askPanel">
-    <div class="ask-head">
-      <div>
-        <strong>AI 助手</strong>
-        <span id="askScopeLabel">全部论文</span>
-      </div>
-      <button class="icon-btn" id="askClose">×</button>
-    </div>
-    <div class="ask-scope">
-      <select class="select" id="askScope"><option value="">全部论文</option></select>
-    </div>
-    <div class="ask-body" id="askBody">
-      <div class="ask-msg bot">
-        <p>你可以这样问：</p>
-        <div class="chips">
-          <button class="chip">比表面积最高的样品是多少？</button>
-          <button class="chip">用了什么表面活性剂？</button>
-          <button class="chip">煅烧温度和时间是多少？</button>
-        </div>
-        <p class="muted">每条回答都会附带页码引文，点击即可跳到原文。</p>
       </div>
     </div>
-    <form class="ask-form" id="askForm">
-      <input class="input" id="askInput" placeholder="围绕论文提问…" autocomplete="off" />
-      <button class="btn primary" type="submit">发送</button>
-    </form>
-  </aside>
 
-  <div class="toast-wrap" id="toastWrap"></div>
-</div>
-<script src="/static/app.js"></script>
+    <div class="toast-wrap" id="toastWrap"></div>
+  </div>
+  <script src="/static/app.js"></script>
 </body>
+
 </html>

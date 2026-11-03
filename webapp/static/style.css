@@ -63,6 +63,11 @@
 
 * { box-sizing: border-box; }
 
+/* `hidden` 属性只在 UA 样式表里声明 display:none，优先级低于本文件的
+   .bulk-bar{display:flex} / .btn{display:inline-flex} 等规则，会导致
+   element.hidden = true 不起作用。这里统一兜底。 */
+[hidden] { display: none !important; }
+
 html, body {
   margin: 0;
   height: 100%;
@@ -907,6 +912,190 @@ button, input, select { font-family: inherit; font-size: inherit; color: inherit
 @keyframes rise { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
 
 .placeholder { padding: 28px 18px; color: var(--text-mute); font-size: 12.5px; text-align: center; line-height: 1.7; }
+
+/* ---------------- onboarding hints ---------------- */
+
+/* 侧栏引擎卡片里的连接入口：未连接时高亮，促使用户去配置 */
+.engine-setup {
+  display: block;
+  width: 100%;
+  margin-top: 9px;
+  padding: 6px 8px;
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  color: var(--text-dim);
+  font-size: 11.5px;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s, border-color 0.15s;
+}
+.engine-setup:hover { background: var(--panel); color: var(--text); border-color: var(--accent); }
+.engine-setup.call {
+  background: var(--accent-dim); border-color: var(--accent); color: var(--accent); font-weight: 600;
+}
+
+/* 文献库顶部的三步指引 */
+.guide-bar {
+  position: relative;
+  display: flex; align-items: stretch; gap: 10px;
+  padding: 12px 40px 12px 14px;
+  margin-bottom: 14px;
+  background: var(--panel);
+  border: 1px solid var(--line-soft);
+  border-left: 3px solid var(--accent);
+  border-radius: var(--radius);
+}
+.guide-step { display: flex; align-items: center; gap: 9px; flex: 1; min-width: 0; }
+.guide-step b {
+  width: 22px; height: 22px; flex: none;
+  display: grid; place-items: center;
+  border-radius: 50%;
+  background: var(--accent-dim); color: var(--accent);
+  font-size: 11.5px;
+}
+.guide-step span { font-size: 12.5px; font-weight: 600; white-space: nowrap; }
+.guide-step em {
+  font-style: normal; font-size: 11px; color: var(--text-mute);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.guide-arrow { align-self: center; color: var(--text-mute); flex: none; }
+.guide-hide {
+  position: absolute; top: 7px; right: 9px;
+  background: transparent; border: 0; color: var(--text-mute);
+  font-size: 16px; line-height: 1; cursor: pointer; padding: 2px 5px;
+}
+.guide-hide:hover { color: var(--text); }
+
+/* 批量栏的方式说明 / 视图级与面板级提示 */
+.bulk-label { font-size: 11.5px; color: var(--text-dim); }
+.bulk-hint { margin: -6px 0 14px; font-size: 11.5px; color: var(--text-mute); line-height: 1.6; }
+.bulk-hint a { color: var(--accent); }
+
+.view-tip {
+  margin: -4px 0 12px;
+  font-size: 11.5px; color: var(--text-mute); line-height: 1.7;
+}
+.view-tip b { color: var(--text-dim); }
+.view-tip code {
+  background: var(--panel-2); border-radius: 4px; padding: 1px 4px; font-size: 11px;
+}
+
+.panel-tip {
+  margin: 0;
+  padding: 9px 14px;
+  border-bottom: 1px solid var(--line-soft);
+  background: var(--panel-2);
+  font-size: 11.5px; color: var(--text-mute); line-height: 1.7;
+  flex: none;
+}
+.panel-tip b { color: var(--text-dim); }
+
+.empty-note {
+  margin: 14px auto 0; max-width: 420px;
+  font-size: 11.5px; color: var(--text-mute); line-height: 1.7;
+}
+
+/* 批量栏下拉要容纳整句说明 */
+.bulk-bar .select { max-width: 460px; }
+.paper-actions .select.sm { max-width: 190px; }
+
+/* ---------------- settings modal ---------------- */
+
+.modal-mask {
+  position: fixed; inset: 0; z-index: 100;
+  background: rgba(4, 8, 13, 0.62);
+  display: grid; place-items: center;
+  padding: 24px;
+}
+.modal {
+  width: min(560px, 100%);
+  max-height: min(88vh, 760px);
+  display: flex; flex-direction: column;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  box-shadow: 0 24px 64px var(--shadow);
+  animation: rise 0.18s ease;
+}
+.modal-head {
+  display: flex; align-items: flex-start; justify-content: space-between; gap: 12px;
+  padding: 15px 16px 13px;
+  border-bottom: 1px solid var(--line-soft);
+  flex: none;
+}
+.modal-head strong { display: block; font-size: 14.5px; }
+.modal-head span { display: block; margin-top: 3px; font-size: 11.5px; color: var(--text-mute); }
+.modal-body { padding: 15px 16px; overflow: auto; }
+.modal-foot {
+  display: flex; align-items: center; gap: 8px;
+  padding: 12px 16px;
+  border-top: 1px solid var(--line-soft);
+  flex: none;
+}
+.modal-foot-gap { flex: 1; }
+
+.setting-state {
+  border-radius: var(--radius-sm);
+  padding: 10px 12px;
+  margin-bottom: 13px;
+  font-size: 11.5px;
+  line-height: 1.75;
+  border: 1px solid var(--line-soft);
+}
+.setting-state b { display: block; font-size: 12.5px; margin-bottom: 2px; }
+.setting-state span { display: block; color: var(--text-dim); }
+.setting-state code {
+  background: var(--panel-2); border-radius: 4px; padding: 1px 5px; font-size: 11px;
+}
+.setting-state.ok { background: var(--ok-dim); border-color: var(--ok); }
+.setting-state.ok b { color: var(--ok); }
+.setting-state.warn { background: var(--warn-dim); border-color: var(--warn); }
+.setting-state.warn b { color: var(--warn); }
+
+.setting-intro {
+  margin: 0 0 15px;
+  font-size: 11.5px; color: var(--text-mute); line-height: 1.85;
+}
+.setting-intro b { color: var(--text-dim); }
+
+.setting-row { display: block; margin-bottom: 7px; }
+.setting-label {
+  display: block; margin-bottom: 5px;
+  font-size: 12px; font-weight: 600; color: var(--text-dim);
+}
+.setting-row .input, .setting-row .select { width: 100%; }
+
+.setting-hint {
+  margin: 0 0 14px;
+  font-size: 11px; color: var(--text-mute); line-height: 1.7;
+}
+.setting-hint b { color: var(--text-dim); }
+
+.key-field { display: flex; gap: 7px; }
+.key-field .input { flex: 1; font-family: ui-monospace, "SFMono-Regular", Consolas, monospace; }
+
+.setting-adv {
+  border: 1px solid var(--line-soft);
+  border-radius: var(--radius-sm);
+  padding: 10px 12px;
+  margin-bottom: 13px;
+  background: var(--bg-soft);
+}
+.setting-adv summary {
+  cursor: pointer; font-size: 12px; color: var(--text-dim); outline: none;
+}
+.setting-adv summary:hover { color: var(--text); }
+.setting-adv[open] summary { margin-bottom: 11px; }
+
+.setting-result {
+  border-radius: var(--radius-sm);
+  padding: 9px 12px;
+  font-size: 11.5px;
+  line-height: 1.7;
+  border: 1px solid var(--line-soft);
+}
+.setting-result.ok { background: var(--ok-dim); border-color: var(--ok); color: var(--ok); }
+.setting-result.err { background: var(--danger-dim); border-color: var(--danger); color: var(--danger); }
 
 ::-webkit-scrollbar { width: 9px; height: 9px; }
 ::-webkit-scrollbar-track { background: transparent; }

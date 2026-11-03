@@ -29,6 +29,53 @@ PAPERS_DIR = _ROOT / "papers"
 _LOADER_LOCK = threading.Lock()
 _LOADER = PDFLoader(use_cache=True, ocr=False)
 
+# Single source of truth for the mode picker: the UI renders these labels and
+# descriptions, and run_extraction() below dispatches on the same ids.
+EXTRACTION_MODES: list[dict[str, Any]] = [
+    {
+        "value": "anchored",
+        "label": "推荐 · 通读全文再复核",
+        "short": "推荐",
+        "summary": "先通读全文给出草稿，再让 AI 逐页核对、补漏、合并重复样品。",
+        "detail": "准确率最高，字段最全，适合正式整理数据。单篇约 1–3 分钟。",
+        "needs_llm": True,
+        "speed": "较慢",
+        "recommended": True,
+    },
+    {
+        "value": "oneshot",
+        "label": "快速 · 通读全文一次",
+        "short": "快速",
+        "summary": "把论文全文交给 AI 读一遍，直接给出结果，不再复核。",
+        "detail": "速度快、花费少，但偶尔会漏样品或填错字段。适合先快速看个大概。",
+        "needs_llm": True,
+        "speed": "快",
+        "recommended": False,
+    },
+    {
+        "value": "agent",
+        "label": "深挖 · AI 自己翻页查表",
+        "short": "深挖",
+        "summary": "不预先给草稿，让 AI 自主翻页、读表格、做换算后再提交。",
+        "detail": "适合样品都写在表格里、正文描述零散的论文。耗时与花费最高。",
+        "needs_llm": True,
+        "speed": "慢",
+        "recommended": False,
+    },
+    {
+        "value": "rules",
+        "label": "离线 · 关键词规则匹配",
+        "short": "离线",
+        "summary": "完全不调用 AI，用内置化学关键词规则扫描全文。",
+        "detail": "几秒出结果、不花钱、不联网，但每篇只给一条记录且字段较少。没有 API Key 时系统也会自动用它。",
+        "needs_llm": False,
+        "speed": "极快",
+        "recommended": False,
+    },
+]
+
+MODE_VALUES: set[str] = {item["value"] for item in EXTRACTION_MODES}
+
 
 def load_paper(path: str | Path) -> PaperText:
     """Parse a PDF into pages and tables (cached by the existing loader)."""
@@ -176,8 +223,10 @@ def verify_evidence(paper: PaperText, page: int, quote: str) -> bool:
 
 
 __all__ = [
+    "EXTRACTION_MODES",
     "FIELD_KEYS",
     "FIELD_LABELS",
+    "MODE_VALUES",
     "PAPERS_DIR",
     "PDFError",
     "load_paper",

@@ -27,8 +27,10 @@ from .db import Database, dumps, loads, now
 from .demo import DEMO_PAPERS
 from .pdfgen import render_demo_pdf
 from .extraction import (
+    EXTRACTION_MODES,
     FIELD_KEYS,
     FIELD_LABELS,
+    MODE_VALUES,
     PDFError,
     llm_status,
     load_paper,
@@ -36,6 +38,13 @@ from .extraction import (
     verify_evidence,
 )
 from .qa import Retriever, build_answer
+from .settings import (
+    SettingsError,
+    clear_key,
+    read_settings,
+    save_settings,
+    test_connection,
+)
 
 ROOT = Path(__file__).resolve().parents[2]
 WEBAPP = ROOT / "webapp"
@@ -163,7 +172,68 @@ def api_status() -> dict[str, Any]:
         "llm": status,
         "counts": {key: int(value or 0) for key, value in counts.items()},
         "fields": [{"key": key, "label": FIELD_LABELS[key]} for key in FIELD_KEYS],
+        "modes": EXTRACTION_MODES,
     }
+
+
+# --------------------------------------------------------------------------- #
+# in-app LLM settings
+# --------------------------------------------------------------------------- #
+
+@app.get("/api/settings/llm")
+def api_get_llm_settings() -> dict[str, Any]:
+    """Current credentials (key redacted) plus the provider presets."""
+    return read_settings()
+
+
+@app.put("/api/settings/llm")
+async def api_put_llm_settings(request: Request) -> dict[str, Any]:
+    """Save credentials to .env and apply them without a restart.
+
+    ``test`` (default true) verifies the endpoint before persisting, so a typo
+    cannot silently disable the LLM engine.
+    """
+    body = await request.json()
+    api_key = body.get("api_key")
+    base_url = str(body.get("base_url") or "")
+    model = str(body.get("model") or "")
+    should_test = body.get("test", True)
+
+    probe: dict[str, Any] | None = None
+    if should_test:
+        probe = test_connection(api_key=api_key, base_url=base_url, model=model)
+        if not probe["ok"]:
+            raise HTTPException(400, probe["message"])
+
+    try:
+        settings = save_settings(api_key=api_key, base_url=base_url, model=model)
+    except SettingsError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    except OSError as exc:
+        raise HTTPException(500, f"写入配置文件失败：{exc}") from exc
+
+    return {"settings": settings, "llm": llm_status(), "test": probe}
+
+
+@app.post("/api/settings/llm/test")
+async def api_test_llm_settings(request: Request) -> dict[str, Any]:
+    """Verify endpoint/key/model without saving anything."""
+    body = await request.json()
+    return test_connection(
+        api_key=body.get("api_key"),
+        base_url=body.get("base_url"),
+        model=body.get("model"),
+    )
+
+
+@app.delete("/api/settings/llm")
+def api_delete_llm_settings() -> dict[str, Any]:
+    """Forget the stored key and fall back to the rule engine."""
+    try:
+        settings = clear_key()
+    except OSError as exc:
+        raise HTTPException(500, f"写入配置文件失败：{exc}") from exc
+    return {"settings": settings, "llm": llm_status()}
 
 
 @app.get("/api/papers")
@@ -356,7 +426,7 @@ async def api_create_job(request: Request) -> dict[str, Any]:
     body = await request.json()
     paper_fk = int(body.get("paper_fk") or 0)
     mode = str(body.get("mode") or "anchored")
-    if mode not in {"anchored", "agent", "oneshot", "rules"}:
+    if mode not in MODE_VALUES:
         raise HTTPException(400, "mode 不合法")
     _paper_row(paper_fk)
 
@@ -539,7 +609,7 @@ async def api_batch_jobs(request: Request) -> dict[str, Any]:
     body = await request.json()
     ids = body.get("paper_fks") or []
     mode = str(body.get("mode") or "anchored")
-    if mode not in {"anchored", "agent", "oneshot", "rules"}:
+    if mode not in MODE_VALUES:
         raise HTTPException(400, "mode 不合法")
     if not isinstance(ids, list) or not ids:
         raise HTTPException(400, "paper_fks 不能为空")
