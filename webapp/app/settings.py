@@ -9,17 +9,31 @@ file as a small, safe API:
 * ``os.environ`` is updated in the same call, so a new key takes effect without
   restarting the server (``LLMConfig.from_env()`` re-reads the environment on
   every extraction).
+
+Previously used connections are also remembered as *profiles* (provider, key,
+base URL, model).  Profiles keep the real key server-side in
+``webapp/data/llm_profiles.json``; the browser only ever receives a masked
+preview plus an opaque id, and applying a profile is done by id.
 """
 
 from __future__ import annotations
 
+import hashlib
+import json
 import os
 import re
+import threading
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
 ROOT = Path(__file__).resolve().parents[2]
 ENV_PATH = ROOT / ".env"
+# Saved connection profiles live beside the database, under the gitignored
+# webapp/data/ directory, so real keys never reach version control.
+PROFILES_PATH = ROOT / "webapp" / "data" / "llm_profiles.json"
+MAX_PROFILES = 12
+_PROFILE_LOCK = threading.Lock()
 
 KEY_VAR = "MKEA_LLM_API_KEY"
 BASE_URL_VAR = "MKEA_LLM_BASE_URL"
@@ -165,6 +179,189 @@ def _patch_env_file(updates: dict[str, str]) -> None:
     tmp.replace(ENV_PATH)
 
 
+# --------------------------------------------------------------------------- #
+# saved connection profiles
+# --------------------------------------------------------------------------- #
+
+def _profile_id(provider: str, base_url: str, model: str, key: str) -> str:
+    """Stable id for one connection.
+
+    The key is hashed in, so re-saving the same endpoint with a *different*
+    key replaces the old entry instead of silently keeping a stale secret.
+    """
+    digest = hashlib.sha256(
+        "\n".join([provider, base_url, model, key]).encode("utf-8")
+    ).hexdigest()
+    return digest[:16]
+
+
+def _load_profiles() -> list[dict[str, Any]]:
+    """Read stored profiles; a corrupt file degrades to an empty list."""
+    if not PROFILES_PATH.exists():
+        return []
+    try:
+        payload = json.loads(PROFILES_PATH.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return []
+    items = payload.get("profiles") if isinstance(payload, dict) else payload
+    if not isinstance(items, list):
+        return []
+
+    cleaned: list[dict[str, Any]] = []
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        base_url = str(item.get("base_url") or "").strip()
+        model = str(item.get("model") or "").strip()
+        if not base_url or not model:
+            continue
+        cleaned.append(
+            {
+                "id": str(item.get("id") or ""),
+                "provider": str(item.get("provider") or "custom"),
+                "provider_label": str(item.get("provider_label") or ""),
+                "base_url": base_url,
+                "model": model,
+                "api_key": str(item.get("api_key") or ""),
+                "last_used_at": str(item.get("last_used_at") or ""),
+            }
+        )
+    return cleaned
+
+
+def _write_profiles(profiles: list[dict[str, Any]]) -> None:
+    PROFILES_PATH.parent.mkdir(parents=True, exist_ok=True)
+    tmp = PROFILES_PATH.with_suffix(".json.tmp")
+    tmp.write_text(
+        json.dumps({"profiles": profiles}, ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8",
+    )
+    tmp.replace(PROFILES_PATH)
+
+
+def _provider_label(provider_id: str) -> str:
+    found = next((p for p in PROVIDER_PRESETS if p["id"] == provider_id), None)
+    return found["label"] if found else "自定义服务"
+
+
+def _public_profile(item: dict[str, Any], *, active_id: str = "") -> dict[str, Any]:
+    """Browser-facing view: never includes the key itself."""
+    return {
+        "id": item["id"],
+        "provider": item["provider"],
+        "provider_label": item["provider_label"] or _provider_label(item["provider"]),
+        "base_url": item["base_url"],
+        "model": item["model"],
+        "key_masked": mask_key(item["api_key"]),
+        "has_key": bool(item["api_key"]),
+        "last_used_at": item["last_used_at"],
+        "active": bool(active_id) and item["id"] == active_id,
+    }
+
+
+def list_profiles() -> list[dict[str, Any]]:
+    """Saved connections, most recently used first, with keys redacted."""
+    key, _ = _effective_key()
+    current = read_raw_config()
+    active = _profile_id(
+        _guess_provider(current["base_url"]), current["base_url"], current["model"], key
+    ) if key else ""
+    profiles = _load_profiles()
+    profiles.sort(key=lambda item: item["last_used_at"], reverse=True)
+    return [_public_profile(item, active_id=active) for item in profiles]
+
+
+def _guess_provider(base_url: str) -> str:
+    url = str(base_url or "").rstrip("/")
+    found = next((p for p in PROVIDER_PRESETS if p["base_url"] and p["base_url"] == url), None)
+    return found["id"] if found else "custom"
+
+
+def remember_profile(
+    *, provider: str, base_url: str, model: str, api_key: str
+) -> list[dict[str, Any]]:
+    """Record a working connection so it can be reused later.
+
+    Entries are keyed by (provider, base_url, model, key): saving the same
+    combination again only refreshes its timestamp, and changing the key for an
+    existing endpoint replaces that endpoint's entry rather than piling up.
+    """
+    if not api_key:
+        return list_profiles()
+
+    provider_id = provider or _guess_provider(base_url)
+    entry = {
+        "id": _profile_id(provider_id, base_url, model, api_key),
+        "provider": provider_id,
+        "provider_label": _provider_label(provider_id),
+        "base_url": base_url,
+        "model": model,
+        "api_key": api_key,
+        "last_used_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+    }
+
+    with _PROFILE_LOCK:
+        profiles = [
+            item
+            for item in _load_profiles()
+            # Drop the exact same entry, and any older key for this endpoint.
+            if item["id"] != entry["id"]
+            and not (
+                item["base_url"] == base_url
+                and item["model"] == model
+                and item["provider"] == provider_id
+            )
+        ]
+        profiles.insert(0, entry)
+        profiles.sort(key=lambda item: item["last_used_at"], reverse=True)
+        _write_profiles(profiles[:MAX_PROFILES])
+
+    return list_profiles()
+
+
+def get_profile_secret(profile_id: str) -> dict[str, Any]:
+    """Internal lookup that includes the key; never return this to the browser."""
+    found = next((item for item in _load_profiles() if item["id"] == profile_id), None)
+    if found is None:
+        raise SettingsError("该历史配置不存在，可能已被删除")
+    return found
+
+
+def apply_profile(profile_id: str, *, test: bool = True) -> dict[str, Any]:
+    """Switch the live configuration to a stored profile."""
+    found = get_profile_secret(profile_id)
+
+    probe: dict[str, Any] | None = None
+    if test:
+        probe = test_connection(
+            api_key=found["api_key"], base_url=found["base_url"], model=found["model"]
+        )
+        if not probe["ok"]:
+            raise SettingsError(probe["message"])
+
+    settings = save_settings(
+        api_key=found["api_key"],
+        base_url=found["base_url"],
+        model=found["model"],
+        provider=found["provider"],
+    )
+    return {"settings": settings, "test": probe}
+
+def delete_profile(profile_id: str) -> list[dict[str, Any]]:
+    """Forget one stored connection (does not change the active settings)."""
+    with _PROFILE_LOCK:
+        profiles = _load_profiles()
+        remaining = [item for item in profiles if item["id"] != profile_id]
+        if len(remaining) == len(profiles):
+            raise SettingsError("该历史配置不存在，可能已被删除")
+        _write_profiles(remaining)
+    return list_profiles()
+
+
+# --------------------------------------------------------------------------- #
+# active configuration
+# --------------------------------------------------------------------------- #
+
 def _effective_key() -> tuple[str, str]:
     """Return (key, source) for the key that from_env() would actually use.
 
@@ -186,25 +383,34 @@ def _effective_key() -> tuple[str, str]:
     return "", "none"
 
 
+def read_raw_config() -> dict[str, str]:
+    """Active base_url/model, independent of redaction."""
+    file_values = _read_env_file()
+    return {
+        "base_url": (
+            os.environ.get(BASE_URL_VAR)
+            or file_values.get(BASE_URL_VAR)
+            or DEFAULT_BASE_URL
+        ),
+        "model": os.environ.get(MODEL_VAR) or file_values.get(MODEL_VAR) or DEFAULT_MODEL,
+    }
+
+
 def read_settings() -> dict[str, Any]:
     """Current configuration, with the key redacted."""
-    file_values = _read_env_file()
     key, source = _effective_key()
-    base_url = (
-        os.environ.get(BASE_URL_VAR)
-        or file_values.get(BASE_URL_VAR)
-        or DEFAULT_BASE_URL
-    )
-    model = os.environ.get(MODEL_VAR) or file_values.get(MODEL_VAR) or DEFAULT_MODEL
+    raw = read_raw_config()
     return {
         "has_key": bool(key),
         "key_masked": mask_key(key),
         "key_source": source,
-        "base_url": base_url,
-        "model": model,
+        "base_url": raw["base_url"],
+        "model": raw["model"],
+        "provider": _guess_provider(raw["base_url"]),
         "env_file": str(ENV_PATH),
         "env_file_exists": ENV_PATH.exists(),
         "presets": PROVIDER_PRESETS,
+        "profiles": list_profiles(),
     }
 
 
@@ -224,8 +430,15 @@ def save_settings(
     api_key: str | None,
     base_url: str,
     model: str,
+    provider: str = "",
+    remember: bool = True,
 ) -> dict[str, Any]:
-    """Persist settings to .env and apply them to the running process."""
+    """Persist settings to .env and apply them to the running process.
+
+    A successful save is also recorded as a reusable profile, so the user can
+    switch back to this provider/key/model combination later without retyping
+    the secret.
+    """
     url = _validate_base_url(base_url)
     name = model.strip()
     if not name:
@@ -247,6 +460,18 @@ def save_settings(
     if key:
         # A stale legacy variable would otherwise keep shadowing the new key.
         os.environ.pop(LEGACY_KEY_VAR, None)
+
+    if remember:
+        # Reuse the stored key when the user only changed the model, so the
+        # profile still carries a usable secret.
+        effective, _ = _effective_key()
+        if effective:
+            remember_profile(
+                provider=provider or _guess_provider(url),
+                base_url=url,
+                model=name,
+                api_key=effective,
+            )
     return read_settings()
 
 
@@ -331,8 +556,12 @@ def _friendly_error(raw: str) -> str:
 __all__ = [
     "PROVIDER_PRESETS",
     "SettingsError",
+    "apply_profile",
     "clear_key",
+    "delete_profile",
+    "list_profiles",
     "read_settings",
+    "remember_profile",
     "save_settings",
     "test_connection",
 ]

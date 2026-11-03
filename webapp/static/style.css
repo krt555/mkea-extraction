@@ -96,6 +96,9 @@ button, input, select { font-family: inherit; font-size: inherit; color: inherit
   flex-direction: column;
   padding: 18px 14px 20px;
   gap: 18px;
+  /* 允许折叠态的导航提示气泡溢出到主区域上方显示 */
+  overflow: visible;
+  z-index: 60;
 }
 
 .brand { display: flex; align-items: center; gap: 11px; padding: 0 4px; }
@@ -118,6 +121,7 @@ button, input, select { font-family: inherit; font-size: inherit; color: inherit
 .nav { display: flex; flex-direction: column; gap: 2px; }
 
 .nav-item {
+  position: relative;
   display: flex; align-items: center; gap: 10px;
   padding: 9px 11px;
   background: transparent;
@@ -1097,6 +1101,54 @@ button, input, select { font-family: inherit; font-size: inherit; color: inherit
 .setting-result.ok { background: var(--ok-dim); border-color: var(--ok); color: var(--ok); }
 .setting-result.err { background: var(--danger-dim); border-color: var(--danger); color: var(--danger); }
 
+/* ---------------- saved connection profiles ---------------- */
+
+.profile-block {
+  border: 1px solid var(--line-soft);
+  border-radius: var(--radius-sm);
+  background: var(--bg-soft);
+  padding: 11px 12px 9px;
+  margin-bottom: 15px;
+}
+.profile-head { margin-bottom: 9px; }
+.profile-head .setting-label { margin-bottom: 3px; }
+.profile-note { display: block; font-size: 11px; color: var(--text-mute); line-height: 1.6; }
+
+.profile-list { display: flex; flex-direction: column; gap: 7px; }
+
+.profile-item {
+  display: flex; align-items: center; gap: 10px;
+  padding: 8px 10px;
+  background: var(--panel);
+  border: 1px solid var(--line-soft);
+  border-radius: var(--radius-sm);
+  transition: border-color 0.15s, background 0.15s;
+}
+.profile-item:hover { border-color: var(--accent); }
+.profile-item.active { border-color: var(--accent); background: var(--accent-dim); }
+
+.profile-main { flex: 1; min-width: 0; }
+.profile-title {
+  display: flex; align-items: center; gap: 7px;
+  font-size: 12.5px; font-weight: 600;
+}
+.profile-title .profile-key {
+  font-weight: 400; font-size: 11px; color: var(--text-mute);
+  font-family: ui-monospace, "SFMono-Regular", Consolas, monospace;
+}
+.profile-sub {
+  margin-top: 3px;
+  font-size: 11px; color: var(--text-mute);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.profile-badge {
+  font-size: 10px; font-weight: 600;
+  color: var(--accent); background: var(--accent-dim);
+  border-radius: 4px; padding: 1px 6px;
+}
+.profile-actions { display: flex; gap: 6px; flex: none; }
+.profile-actions .btn { padding: 4px 9px; font-size: 11.5px; }
+
 ::-webkit-scrollbar { width: 9px; height: 9px; }
 ::-webkit-scrollbar-track { background: transparent; }
 ::-webkit-scrollbar-thumb { background: var(--scroll); border-radius: 5px; border: 2px solid var(--bg-soft); }
@@ -1108,7 +1160,56 @@ button, input, select { font-family: inherit; font-size: inherit; color: inherit
 
 @media (max-width: 1100px) {
   .app { grid-template-columns: 64px 1fr; }
-  .brand-text, .nav-item span:not(.nav-ico), .sidebar-foot { display: none; }
+  .brand-text, .nav-text, .engine-row, .engine-card p, .stat-grid, .theme-btn { display: none; }
+  .sidebar { padding: 18px 8px 16px; align-items: center; }
+  .nav { width: 100%; }
+  .nav-item { justify-content: center; padding: 9px 0; }
+
+  /* 折叠态保留 AI 设置入口：上一版把整个 .sidebar-foot 藏起来，
+     导致窄屏用户完全无法进入设置。这里收成一个方形图标按钮。 */
+  .engine-card { background: transparent; border: 0; padding: 0; }
+  .engine-setup {
+    width: 40px; height: 40px;
+    margin: 0 auto;
+    padding: 0;
+    display: grid; place-items: center;
+    font-size: 0;
+  }
+  .engine-setup::before { content: "⚙"; font-size: 16px; }
+
   .workbench, .compare-layout { grid-template-columns: 1fr; height: auto; }
   .panel { height: 440px; }
+
+  /* 折叠态下的导航提示：标签被隐藏后，仅剩图标无法分辨功能 */
+  .nav-item[data-tip]:hover::after,
+  .nav-item[data-tip]:focus-visible::after {
+    content: attr(data-tip);
+    position: absolute;
+    left: calc(100% + 8px);
+    top: 50%;
+    transform: translateY(-50%);
+    padding: 5px 10px;
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: var(--radius-sm);
+    color: var(--text);
+    font-size: 12px;
+    white-space: nowrap;
+    box-shadow: 0 6px 20px var(--shadow);
+    pointer-events: none;
+    z-index: 70;
+  }
+  /* 小三角，指向被悬停的图标 */
+  .nav-item[data-tip]:hover::before,
+  .nav-item[data-tip]:focus-visible::before {
+    content: "";
+    position: absolute;
+    left: calc(100% + 3px);
+    top: 50%;
+    transform: translateY(-50%);
+    border: 5px solid transparent;
+    border-right-color: var(--line);
+    pointer-events: none;
+    z-index: 70;
+  }
 }

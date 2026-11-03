@@ -20,21 +20,22 @@
         </div>
       </div>
 
+      <!-- data-tip 用于窄屏折叠态的悬停提示：此时文字标签被隐藏，只剩图标 -->
       <nav class="nav" id="nav">
-        <button class="nav-item active" data-view="library">
-          <span class="nav-ico">■</span><span>文献库</span>
+        <button class="nav-item active" data-view="library" data-tip="文献库">
+          <span class="nav-ico">■</span><span class="nav-text">文献库</span>
         </button>
-        <button class="nav-item" data-view="review">
-          <span class="nav-ico">▦</span><span>提取结果</span>
+        <button class="nav-item" data-view="review" data-tip="提取结果">
+          <span class="nav-ico">▦</span><span class="nav-text">提取结果</span>
         </button>
-        <button class="nav-item" data-view="compare">
-          <span class="nav-ico">⇄</span><span>样品对比</span>
+        <button class="nav-item" data-view="compare" data-tip="样品对比">
+          <span class="nav-ico">⇄</span><span class="nav-text">样品对比</span>
         </button>
-        <button class="nav-item" data-view="search">
-          <span class="nav-ico">▼</span><span>跨论文检索</span>
+        <button class="nav-item" data-view="search" data-tip="跨论文检索">
+          <span class="nav-ico">▼</span><span class="nav-text">跨论文检索</span>
         </button>
-        <button class="nav-item" data-view="jobs">
-          <span class="nav-ico">●</span><span>任务与日志</span>
+        <button class="nav-item" data-view="jobs" data-tip="任务与日志">
+          <span class="nav-ico">●</span><span class="nav-text">任务与日志</span>
         </button>
       </nav>
 
@@ -346,6 +347,15 @@
             AI 服务商的 <b>API Key</b>——相当于调用账号的密码，在服务商官网注册后即可获取，通常按用量计费。
             密钥只保存在你自己电脑的配置文件里，不会上传到任何地方。
           </p>
+
+          <!-- 历史配置：保存成功过的连接会出现在这里，可一键切回 -->
+          <div class="profile-block" id="profileBlock" hidden>
+            <div class="profile-head">
+              <span class="setting-label">常用配置</span>
+              <span class="profile-note">保存成功的连接会自动记住，点一下即可切换，不用重输密钥</span>
+            </div>
+            <div class="profile-list" id="profileList"></div>
+          </div>
 
           <label class="setting-row">
             <span class="setting-label">1 · 选择服务商</span>

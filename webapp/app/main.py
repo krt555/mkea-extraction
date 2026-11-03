@@ -40,7 +40,10 @@ from .extraction import (
 from .qa import Retriever, build_answer
 from .settings import (
     SettingsError,
+    apply_profile,
     clear_key,
+    delete_profile,
+    list_profiles,
     read_settings,
     save_settings,
     test_connection,
@@ -206,13 +209,48 @@ async def api_put_llm_settings(request: Request) -> dict[str, Any]:
             raise HTTPException(400, probe["message"])
 
     try:
-        settings = save_settings(api_key=api_key, base_url=base_url, model=model)
+        settings = save_settings(
+            api_key=api_key,
+            base_url=base_url,
+            model=model,
+            provider=str(body.get("provider") or ""),
+        )
     except SettingsError as exc:
         raise HTTPException(400, str(exc)) from exc
     except OSError as exc:
         raise HTTPException(500, f"写入配置文件失败：{exc}") from exc
 
     return {"settings": settings, "llm": llm_status(), "test": probe}
+
+
+@app.get("/api/settings/llm/profiles")
+def api_list_profiles() -> dict[str, Any]:
+    """Previously used connections, with every key redacted."""
+    return {"profiles": list_profiles()}
+
+
+@app.post("/api/settings/llm/profiles/{profile_id}/apply")
+def api_apply_profile(profile_id: str, test: bool = True) -> dict[str, Any]:
+    """Switch back to a saved connection without retyping the key."""
+    try:
+        result = apply_profile(profile_id, test=test)
+    except SettingsError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    except OSError as exc:
+        raise HTTPException(500, f"写入配置文件失败：{exc}") from exc
+    return {**result, "llm": llm_status()}
+
+
+@app.delete("/api/settings/llm/profiles/{profile_id}")
+def api_delete_profile(profile_id: str) -> dict[str, Any]:
+    """Forget one saved connection; the active settings are untouched."""
+    try:
+        profiles = delete_profile(profile_id)
+    except SettingsError as exc:
+        raise HTTPException(404, str(exc)) from exc
+    except OSError as exc:
+        raise HTTPException(500, f"写入配置文件失败：{exc}") from exc
+    return {"profiles": profiles}
 
 
 @app.post("/api/settings/llm/test")

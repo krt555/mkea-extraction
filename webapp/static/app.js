@@ -625,6 +625,84 @@ function matchPresetId(baseUrl) {
   return found ? found.id : "custom";
 }
 
+/** 历史配置里只有脱敏信息；切换时由后端按 id 取回真实密钥。 */
+function renderProfiles() {
+  const block = $("profileBlock");
+  const list = $("profileList");
+  const profiles = (S.settings && S.settings.profiles) || [];
+  if (!profiles.length) {
+    block.hidden = true;
+    list.innerHTML = "";
+    return;
+  }
+  block.hidden = false;
+  list.innerHTML = profiles.map((p) => `
+    <div class="profile-item ${p.active ? "active" : ""}" data-profile="${esc(p.id)}">
+      <div class="profile-main">
+        <div class="profile-title">
+          <span>${esc(p.provider_label)}</span>
+          <span class="profile-key">${esc(p.key_masked)}</span>
+          ${p.active ? '<span class="profile-badge">使用中</span>' : ""}
+        </div>
+        <div class="profile-sub" title="${esc(p.base_url)}">
+          ${esc(p.model)} · ${esc(p.base_url)}${p.last_used_at ? ` · ${esc(formatStamp(p.last_used_at))}` : ""}
+        </div>
+      </div>
+      <div class="profile-actions">
+        <button class="btn sm" data-profile-act="use" ${p.active ? "disabled" : ""}>
+          ${p.active ? "当前" : "使用"}
+        </button>
+        <button class="btn sm danger" data-profile-act="del" title="从历史记录中删除">删除</button>
+      </div>
+    </div>`).join("");
+}
+
+$("profileList").addEventListener("click", async (event) => {
+  const button = event.target.closest("[data-profile-act]");
+  const item = event.target.closest("[data-profile]");
+  if (!button || !item) return;
+  const id = item.dataset.profile;
+
+  if (button.dataset.profileAct === "use") {
+    await withBusy(button, "连接中…", async () => {
+      clearSettingResult();
+      try {
+        const result = await api(
+          `/api/settings/llm/profiles/${encodeURIComponent(id)}/apply`,
+          { method: "POST" },
+        );
+        S.settings = result.settings;
+        renderSettingState();
+        renderProfiles();
+        $("settingBaseUrl").value = S.settings.base_url;
+        $("settingModel").value = S.settings.model;
+        $("settingProvider").value = matchPresetId(S.settings.base_url);
+        $("settingKey").value = "";
+        settingResult(
+          `${result.test ? result.test.message + "；" : ""}已切换到这个配置`,
+          "ok",
+        );
+        toast("已切换 AI 配置，无需重启");
+        await loadStatus();
+        renderLibrary();
+      } catch (error) { settingResult(error.message, "err"); }
+    });
+    return;
+  }
+
+  if (button.dataset.profileAct === "del") {
+    if (!confirm("从历史记录中删除这个配置？当前正在使用的设置不会改变。")) return;
+    try {
+      const result = await api(`/api/settings/llm/profiles/${encodeURIComponent(id)}`, {
+        method: "DELETE",
+      });
+      S.settings = { ...S.settings, profiles: result.profiles };
+      renderProfiles();
+      toast("已从历史记录中删除");
+    } catch (error) { settingResult(error.message, "err"); }
+  }
+});
+
 async function openSettings() {
   clearSettingResult();
   $("settingKey").value = "";
@@ -646,6 +724,7 @@ async function openSettings() {
   $("providerHint").textContent = current ? current.hint || "" : "";
 
   renderSettingState();
+  renderProfiles();
   $("settingsMask").hidden = false;
 }
 
@@ -675,6 +754,7 @@ function settingPayload() {
     api_key: $("settingKey").value,
     base_url: $("settingBaseUrl").value,
     model: $("settingModel").value,
+    provider: $("settingProvider").value,
   };
 }
 
@@ -711,6 +791,7 @@ $("settingSave").addEventListener("click", () =>
       });
       S.settings = result.settings;
       renderSettingState();
+      renderProfiles();
       $("settingKey").value = "";
       settingResult(
         `${result.test ? result.test.message + "；" : ""}已保存，现在就可以用 AI 抽取了`,
@@ -728,7 +809,8 @@ $("settingClear").addEventListener("click", async () => {
     const result = await api("/api/settings/llm", { method: "DELETE" });
     S.settings = result.settings;
     renderSettingState();
-    settingResult("密钥已清除，当前使用离线规则引擎", "ok");
+    renderProfiles();
+    settingResult("密钥已清除，当前使用离线规则引擎。历史配置仍保留，可随时切回。", "ok");
     await loadStatus();
     renderLibrary();
   } catch (error) { settingResult(error.message, "err"); }
