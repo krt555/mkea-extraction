@@ -42,6 +42,52 @@ function toast(message, kind = "") {
   setTimeout(() => node.remove(), 4200);
 }
 
+function positionHelpPopover(help) {
+  const popover = help.querySelector(".help-popover");
+  const trigger = help.querySelector(".help-icon");
+  if (!popover || !trigger) return;
+
+  const triggerRect = trigger.getBoundingClientRect();
+  const popoverRect = popover.getBoundingClientRect();
+  const left = Math.max(8, Math.min(triggerRect.left, window.innerWidth - popoverRect.width - 8));
+  let top = triggerRect.bottom + 8;
+  if (top + popoverRect.height > window.innerHeight - 8) {
+    top = triggerRect.top - popoverRect.height - 8;
+  }
+  popover.style.left = `${left}px`;
+  popover.style.top = `${Math.max(8, top)}px`;
+}
+
+function setHelpOpen(help, open) {
+  help.classList.toggle("is-open", open);
+  const trigger = help.querySelector(".help-icon");
+  if (trigger) trigger.setAttribute("aria-expanded", String(open));
+  if (open) positionHelpPopover(help);
+}
+
+document.querySelectorAll(".help-tip").forEach((help) => {
+  help.addEventListener("pointerenter", () => setHelpOpen(help, true));
+  help.addEventListener("pointerleave", (event) => {
+    if ((!event.relatedTarget || !help.contains(event.relatedTarget)) && !help.matches(":focus-within")) {
+      setHelpOpen(help, false);
+    }
+  });
+  help.addEventListener("focusin", () => setHelpOpen(help, true));
+  help.addEventListener("focusout", (event) => {
+    if (!event.relatedTarget || !help.contains(event.relatedTarget)) setHelpOpen(help, false);
+  });
+  help.addEventListener("keydown", (event) => {
+    if (event.key === "Escape") setHelpOpen(help, false);
+  });
+});
+
+function repositionOpenHelp() {
+  document.querySelectorAll(".help-tip.is-open").forEach(positionHelpPopover);
+}
+
+window.addEventListener("resize", repositionOpenHelp);
+window.addEventListener("scroll", repositionOpenHelp, true);
+
 /* ------------------------------------------------------------------ */
 /* theme                                                               */
 /* ------------------------------------------------------------------ */
@@ -170,14 +216,15 @@ function modeOf(value) {
   return S.modes.find((m) => m.value === value) || null;
 }
 
-/** 批量栏下方的一句话解释，随所选方式变化。 */
+/** 批量抽取方式的悬停说明，随所选方式变化。 */
 function syncBulkHint() {
   const hint = $("bulkHint");
+  const content = $("bulkHintContent");
   const mode = modeOf($("bulkMode").value);
   if (!mode) { hint.hidden = true; return; }
   const llmReady = S.status && S.status.llm && S.status.llm.available;
   hint.hidden = false;
-  hint.innerHTML = mode.needs_llm && !llmReady
+  content.innerHTML = mode.needs_llm && !llmReady
     ? `当前选择「${esc(mode.short)}」需要 AI，但还没连接 AI 服务，系统会自动改用离线规则。`
     + ` <a href="#" id="bulkHintLink">现在连接 →</a>`
     : `「${esc(mode.short)}」：${esc(mode.detail)}`;

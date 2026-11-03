@@ -99,7 +99,11 @@
           <button class="btn" id="bulkRunPending" title="只抽取尚未抽取的论文">抽取全部待抽取</button>
           <button class="btn danger" id="bulkDelete" disabled>一键删除</button>
         </div>
-        <p class="bulk-hint" id="bulkHint" hidden></p>
+        <div class="help-tip bulk-hint" id="bulkHint" hidden>
+          <button class="help-icon" type="button" aria-label="抽取方式说明" aria-expanded="false"
+            aria-controls="bulkHintContent">?</button>
+          <div class="help-popover" id="bulkHintContent"></div>
+        </div>
 
         <!-- 进行中的任务单独成组，带百分比与阶段文字 -->
         <section class="lib-group" id="groupRunning" hidden>
@@ -179,13 +183,19 @@
           <div class="panel field-panel">
             <div class="panel-head">
               <span>抽取记录</span>
-              <div class="record-tabs" id="recordTabs"></div>
+              <div class="panel-head-tools">
+                <div class="record-tabs" id="recordTabs"></div>
+                <div class="help-tip">
+                  <button class="help-icon" type="button" aria-label="抽取记录说明" aria-expanded="false"
+                    aria-controls="recordHelp">?</button>
+                  <div class="help-popover" id="recordHelp">
+                    每行一个字段。<b>p.3</b> 这样的蓝色标签表示这个值来自原文第 3 页，点击条目将跳转至页面并高亮原句；
+                    <b>百分数</b>为 AI 对该值的把握程度。值写着「null（未报道）」意味着论文里未提及或 Agent 未能成功提取。
+                    改完记得点右下角<b>保存修改</b>。
+                  </div>
+                </div>
+              </div>
             </div>
-            <p class="panel-tip">
-              每行一个字段。<b>p.3</b> 这样的蓝色标签表示这个值来自原文第 3 页，点一下左边就会跳过去并高亮原句；
-              <b>百分数</b>是 AI 对该值的把握程度。值写着「null（未报道）」说明论文里没提到，不是出错。
-              改完记得点右下角<b>保存修改</b>。
-            </p>
             <div class="field-list" id="fieldList">
               <div class="placeholder">选择一篇已完成抽取的论文。</div>
             </div>
@@ -214,12 +224,16 @@
               <div class="pick-tools">
                 <button class="btn sm" id="pickAll">全选</button>
                 <button class="btn sm" id="pickNone">清空</button>
+                <div class="help-tip">
+                  <button class="help-icon" type="button" aria-label="选择样品说明" aria-expanded="false"
+                    aria-controls="pickHelp">?</button>
+                  <div class="help-popover" id="pickHelp">
+                    一篇论文可能合成了多个样品，每个样品是一条记录（<b>r01</b>、<b>r02</b>…）。
+                    勾选想对比的几条，右侧会自动排成表格。
+                  </div>
+                </div>
               </div>
             </div>
-            <p class="panel-tip">
-              一篇论文可能合成了多个样品，每个样品是一条记录（<b>r01</b>、<b>r02</b>…）。
-              勾选想对比的几条，右侧会自动排成表格。
-            </p>
             <div class="pick-list" id="pickList"></div>
           </div>
           <div class="panel compare-panel">
@@ -260,10 +274,14 @@
           <label class="check" title="只显示已被人工标记为「已复核」的记录"><input type="checkbox" id="reviewedOnly" /> 仅已复核</label>
           <button class="btn primary" id="searchBtn">检索</button>
         </div>
-        <p class="view-tip">
-          跨全部论文筛选合成条件。关键词留空、只填数值区间也可以检索；
-          比表面积单位 <b>m²/g</b>，孔径单位 <b>nm</b>。点结果里的论文编号可直接跳去核对原文。
-        </p>
+        <div class="help-tip view-tip">
+          <button class="help-icon" type="button" aria-label="跨论文检索说明" aria-expanded="false"
+            aria-controls="searchHelp">?</button>
+          <div class="help-popover" id="searchHelp">
+            跨全部论文筛选合成条件。关键词留空、只填数值区间也可以检索；
+            比表面积单位 <b>m²/g</b>，孔径单位 <b>nm</b>。点结果里的论文编号可直接跳去核对原文。
+          </div>
+        </div>
         <div class="search-summary" id="searchSummary"></div>
         <div class="table-wrap">
           <table class="data-table" id="searchTable">
@@ -274,10 +292,14 @@
       </section>
 
       <section class="view" id="view-jobs">
-        <p class="view-tip">
-          每次抽取的运行记录。<b>引擎</b>显示这次实际用的是 AI 还是离线规则：
-          出现 <code>rules</code> 说明当次没用上 AI（没配密钥或调用失败），具体原因写在<b>提示</b>一列，鼠标悬停可看全文。
-        </p>
+        <div class="help-tip view-tip">
+          <button class="help-icon" type="button" aria-label="任务与日志说明" aria-expanded="false"
+            aria-controls="jobsHelp">?</button>
+          <div class="help-popover" id="jobsHelp">
+            每次抽取的运行记录。<b>引擎</b>显示这次实际用的是 AI 还是离线规则：
+            出现 <code>rules</code> 说明当次没用上 AI（没配密钥或调用失败），具体原因写在<b>提示</b>一列，鼠标悬停可看全文。
+          </div>
+        </div>
         <div class="table-wrap">
           <table class="data-table" id="jobTable">
             <thead>

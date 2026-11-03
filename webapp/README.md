@@ -16,6 +16,8 @@ uv sync --extra web
 
 # 启动（默认 http://127.0.0.1:8000）
 python webapp/run.py
+# 或（推荐）
+.venv\Scripts\python.exe webapp\run.py
 
 # 自定义端口 / 开发热重载
 python webapp/run.py --port 8800 --reload
