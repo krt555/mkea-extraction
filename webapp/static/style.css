@@ -233,6 +233,33 @@ button, input, select { font-family: inherit; font-size: inherit; color: inherit
 .upload-zone span { font-size: 11.5px; color: var(--text-dim); }
 .upload-zone.hot { border-color: var(--accent); background: var(--accent-dim); }
 
+/* 批量操作栏 */
+.bulk-bar {
+  display: flex; align-items: center; gap: 10px;
+  padding: 10px 14px;
+  margin-bottom: 18px;
+  background: var(--panel);
+  border: 1px solid var(--line-soft);
+  border-radius: var(--radius);
+  flex-wrap: wrap;
+}
+.bulk-count {
+  font-size: 11.5px; color: var(--text-dim);
+  font-variant-numeric: tabular-nums; min-width: 68px;
+}
+.bulk-sep { width: 1px; height: 20px; background: var(--line); }
+.bulk-bar .select { padding: 5px 8px; font-size: 12px; }
+
+/* 卡片勾选框 */
+.paper-top { position: relative; }
+.paper-pick {
+  display: flex; align-items: center; gap: 6px;
+  font-size: 11px; color: var(--text-mute); cursor: pointer;
+  margin-bottom: 2px;
+}
+.paper-pick input { accent-color: var(--accent); }
+.paper-card.picked { border-color: var(--accent); background: var(--accent-dim); }
+
 .lib-group { margin-bottom: 24px; }
 .group-head { display: flex; align-items: center; gap: 9px; margin-bottom: 11px; flex-wrap: wrap; }
 .group-head h2 {
@@ -377,11 +404,26 @@ button, input, select { font-family: inherit; font-size: inherit; color: inherit
 
 /* ---------------- review ---------------- */
 
-.review-head { display: flex; align-items: flex-start; gap: 12px; margin-bottom: 10px; }
-.review-tools { margin-left: auto; display: flex; gap: 7px; flex: none; }
+.review-head {
+  display: flex; align-items: flex-start; gap: 12px; margin-bottom: 10px;
+}
+.review-tools { display: flex; gap: 7px; flex: none; }
 
-/* 论文切换器：卡片式按钮，比下拉框直观 */
-.paper-switch { display: flex; gap: 7px; flex-wrap: wrap; flex: 1; min-width: 0; }
+/* 论文候选区：默认一行，超出折叠。
+   必须用 flex-basis:0 + flex-grow:1 吃掉剩余宽度；若只写 flex:1，
+   nowrap 下的卡片内容会把 flex-basis:auto 撑成内容宽度，
+   导致容器被挤到最小宽度、一张卡都放不下。 */
+.paper-switch {
+  display: flex; gap: 7px; flex-wrap: wrap;
+  flex: 1 1 0; min-width: 0;
+}
+.paper-switch.collapsed {
+  flex-wrap: nowrap;
+  overflow: hidden;
+  /* 折叠时裁掉第一行之外的内容，避免候选区占满半屏 */
+  max-height: 48px;
+}
+.switch-more { flex: none; align-self: flex-start; white-space: nowrap; }
 .switch-card {
   display: flex; flex-direction: column; gap: 2px;
   padding: 7px 11px;
@@ -391,6 +433,7 @@ button, input, select { font-family: inherit; font-size: inherit; color: inherit
   cursor: pointer;
   text-align: left;
   max-width: 260px;
+  flex: none;
   transition: border-color 0.15s, background 0.15s;
 }
 .switch-card:hover { border-color: var(--accent); }
@@ -521,6 +564,63 @@ button, input, select { font-family: inherit; font-size: inherit; color: inherit
 .field-input.dirty { border-color: var(--warn); }
 
 .field-side { display: flex; align-items: center; gap: 6px; flex: none; }
+
+/* 修改历史面板 */
+.history-box {
+  flex: none;
+  max-height: 44%;
+  display: flex; flex-direction: column;
+  border-top: 1px solid var(--line);
+  background: var(--panel-2);
+}
+.history-head {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 9px 14px;
+  font-size: 12px; font-weight: 600; color: var(--text-dim);
+  border-bottom: 1px solid var(--line-soft);
+  flex: none;
+}
+.history-head em {
+  font-style: normal; color: var(--accent);
+  font-variant-numeric: tabular-nums; margin-left: 2px;
+}
+.history-list { overflow-y: auto; padding: 8px 10px; display: flex; flex-direction: column; gap: 7px; }
+.history-item {
+  background: var(--panel);
+  border: 1px solid var(--line-soft);
+  border-left: 2px solid var(--warn);
+  border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+  padding: 8px 10px;
+  font-size: 11.5px;
+}
+.history-item-top {
+  display: flex; align-items: center; gap: 8px;
+  margin-bottom: 5px; flex-wrap: wrap;
+}
+.history-field { font-weight: 650; color: var(--text); }
+.history-time { color: var(--text-mute); font-size: 10.5px; font-variant-numeric: tabular-nums; }
+.history-revert {
+  margin-left: auto; padding: 2px 8px;
+  background: transparent; border: 1px solid var(--line);
+  border-radius: 20px; font-size: 10.5px; color: var(--text-dim); cursor: pointer;
+}
+.history-revert:hover { border-color: var(--accent); color: var(--accent); }
+.history-diff { display: flex; flex-direction: column; gap: 3px; line-height: 1.5; }
+.history-diff span { display: flex; gap: 6px; }
+.history-diff b {
+  flex: none; width: 30px; font-weight: 600; font-size: 10px;
+  padding-top: 1px;
+}
+.history-old b { color: var(--danger); }
+.history-new b { color: var(--ok); }
+.history-old code, .history-new code {
+  font-family: inherit; word-break: break-word;
+  color: var(--text-dim);
+}
+.history-old code { text-decoration: line-through; opacity: 0.8; }
+.history-new code { color: var(--text); }
+.history-empty-val { color: var(--text-mute); font-style: italic; }
+
 .page-pill {
   font-size: 10px;
   padding: 2px 7px;
@@ -688,9 +788,15 @@ button, input, select { font-family: inherit; font-size: inherit; color: inherit
   z-index: 1;
 }
 .data-table tbody tr:hover { background: var(--panel-2); }
-.data-table td.num { font-variant-numeric: tabular-nums; text-align: right; }
+/* 数值列：表头与数据统一右对齐，避免表头贴左、数字贴右造成错位 */
+.data-table th.num, .data-table td.num {
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
 .data-table td.link { color: var(--accent); cursor: pointer; }
 .data-table .null { color: var(--text-mute); }
+/* 缺失值占位符与数字同在右侧基准线上 */
+.data-table td.num .null { display: inline-block; }
 
 /* ---------------- ask panel ---------------- */
 

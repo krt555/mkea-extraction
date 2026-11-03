@@ -27,7 +27,7 @@ except ImportError:  # pragma: no cover - exercised only without the optional de
 if pymupdf is not None:
     pymupdf.no_recommend_layout()
 
-PARSER_VERSION = "pymupdf-2"
+PARSER_VERSION = "pymupdf-3-columns"
 
 
 class PDFError(RuntimeError):
@@ -190,7 +190,13 @@ class PDFLoader:
             except Exception as exc:  # PyMuPDF can fail on odd/corrupt files
                 _ = exc
         pdftext_pages = _pdftotext_safe(path)
-        if pymupdf_pages and _text_size(pymupdf_pages) >= 0.9 * _text_size(pdftext_pages):
+        # PyMuPDF 是首选：它给出块坐标，我们据此按栏重排，双栏论文才不会错乱。
+        # `pdftotext -layout` 会按视觉布局把左右栏并排输出，同一行混进两栏文字，
+        # 因此只在 PyMuPDF 明显抽不出内容时才用它兜底，不再按字符总量比较
+        # （布局版的空格填充会让字符数虚高，反而总是胜出）。
+        if pymupdf_pages and _text_size(pymupdf_pages) >= 2000:
+            pages, tables = pymupdf_pages, pymupdf_tables
+        elif pymupdf_pages and _text_size(pymupdf_pages) >= 0.6 * _text_size(pdftext_pages):
             pages, tables = pymupdf_pages, pymupdf_tables
         elif pdftext_pages:
             pages, tables = pdftext_pages, []
@@ -243,13 +249,79 @@ class PDFLoader:
         return self.cache_dir / f"{paper_id:03d}-{key}.json"
 
 
+def _column_split_x(page_width: float, blocks: list[tuple]) -> float | None:
+    """Find the vertical gutter of a two-column layout.
+
+    ``get_text("text", sort=True)`` sorts purely by vertical position, so on a
+    two-column paper it interleaves the left and right columns into the same
+    line.  Detecting the gutter lets us read each column to its end first,
+    which is how a human reads the page.
+
+    Returns the gutter x coordinate, or None for single-column pages.
+    """
+    text_blocks = [b for b in blocks if len(b) > 6 and b[6] == 0 and str(b[4]).strip()]
+    if len(text_blocks) < 6:
+        return None
+
+    # Probe the middle of the page for an x that almost no block crosses.
+    best: tuple[int, float, float] | None = None
+    for step in range(35, 66):
+        x = page_width * step / 100
+        crossing = sum(1 for b in text_blocks if b[0] < x - 2 and b[2] > x + 2)
+        candidate = (crossing, abs(step - 50) / 100, x)
+        if best is None or candidate < best:
+            best = candidate
+    if best is None:
+        return None
+
+    crossing, _, split = best
+    # Tolerate a few genuinely full-width blocks (titles, wide tables/figures).
+    if crossing > max(1, int(len(text_blocks) * 0.12)):
+        return None
+    left = sum(1 for b in text_blocks if b[2] <= split)
+    right = sum(1 for b in text_blocks if b[0] >= split)
+    if left < 2 or right < 2:
+        return None
+    return split
+
+
+def _page_text_columns(page) -> str:
+    """Extract page text in reading order, column by column."""
+    try:
+        blocks = page.get_text("blocks")
+    except Exception:
+        return page.get_text("text", sort=True)
+
+    split = _column_split_x(page.rect.width, blocks)
+    if split is None:
+        return page.get_text("text", sort=True)
+
+    text_blocks = [b for b in blocks if len(b) > 6 and b[6] == 0 and str(b[4]).strip()]
+    spanning: list[tuple] = []
+    left: list[tuple] = []
+    right: list[tuple] = []
+    for block in text_blocks:
+        if block[2] <= split:
+            left.append(block)
+        elif block[0] >= split:
+            right.append(block)
+        else:
+            spanning.append(block)
+
+    def order(block: tuple) -> tuple[float, float]:
+        return (round(block[1], 1), round(block[0], 1))
+
+    ordered = sorted(spanning, key=order) + sorted(left, key=order) + sorted(right, key=order)
+    return "\n\n".join(str(block[4]).strip() for block in ordered)
+
+
 def _pymupdf_extract(path: Path) -> tuple[list[str], list[PaperTable]]:
     doc = pymupdf.open(path)  # type: ignore[union-attr]
     pages: list[str] = []
     tables: list[PaperTable] = []
     try:
         for page_number, page in enumerate(doc, 1):
-            pages.append(page.get_text("text", sort=True))
+            pages.append(_page_text_columns(page))
             try:
                 found = page.find_tables()
             except Exception:

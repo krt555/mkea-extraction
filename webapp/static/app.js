@@ -13,6 +13,7 @@ const S = {
   dirty: new Map(),     // field key -> new value
   activeField: null,
   pollers: new Map(),
+  picked: new Set(),     // 批量操作选中的 paper id
   compareRows: [],      // all records available for comparison
   compareSel: new Set(),// selected record_id set
 };
@@ -186,11 +187,15 @@ function runningCardHtml(paper) {
 
 function paperCardHtml(paper, group) {
   const job = paper.latest_job;
+  const picked = S.picked.has(paper.id);
   return `
-  <div class="paper-card" data-id="${paper.id}">
+  <div class="paper-card ${picked ? "picked" : ""}" data-id="${paper.id}">
     <div class="paper-top">
       <div>
-        <div class="paper-key">${esc(paper.paper_key)}</div>
+        <label class="paper-pick">
+          <input type="checkbox" data-pick="${paper.id}" ${picked ? "checked" : ""} />
+          <span class="paper-key">${esc(paper.paper_key)}</span>
+        </label>
         <h3 class="paper-title">${esc(paper.title)}</h3>
       </div>
       ${statusBadge(job, paper)}
@@ -261,7 +266,106 @@ function renderLibrary() {
   fill("done", "groupDone", "doneGrid", "doneCount");
   fill("pending", "groupPending", "pendingGrid", "pendingCount");
   fill("failed", "groupFailed", "failedGrid", "failedCount");
+
+  syncBulkBar();
 }
+
+/* ---- 批量操作 ---- */
+
+/** 只有不在运行中的论文可被批量选择。 */
+function selectablePapers() {
+  return S.papers.filter((p) => groupOf(p) !== "running");
+}
+
+function syncBulkBar() {
+  const selectable = selectablePapers();
+  $("bulkBar").hidden = selectable.length < 2;
+
+  // 清理已消失的选中项
+  const valid = new Set(selectable.map((p) => p.id));
+  [...S.picked].forEach((id) => { if (!valid.has(id)) S.picked.delete(id); });
+
+  const count = S.picked.size;
+  $("bulkCount").textContent = `已选 ${count} 篇`;
+  $("bulkRun").disabled = count === 0;
+  $("bulkDelete").disabled = count === 0;
+  $("bulkRun").textContent = count ? `一键抽取 (${count})` : "一键抽取";
+  $("bulkDelete").textContent = count ? `一键删除 (${count})` : "一键删除";
+
+  const all = $("bulkSelectAll");
+  all.checked = count > 0 && count === selectable.length;
+  all.indeterminate = count > 0 && count < selectable.length;
+
+  const pending = S.papers.filter((p) => groupOf(p) === "pending").length;
+  const btn = $("bulkRunPending");
+  btn.disabled = pending === 0;
+  btn.textContent = pending ? `抽取全部待抽取 (${pending})` : "抽取全部待抽取";
+}
+
+$("bulkSelectAll").addEventListener("change", (event) => {
+  S.picked.clear();
+  if (event.target.checked) selectablePapers().forEach((p) => S.picked.add(p.id));
+  renderLibrary();
+});
+
+function handlePickChange(event) {
+  const box = event.target.closest("[data-pick]");
+  if (!box) return;
+  const id = Number(box.dataset.pick);
+  if (box.checked) S.picked.add(id); else S.picked.delete(id);
+  box.closest(".paper-card").classList.toggle("picked", box.checked);
+  syncBulkBar();
+}
+
+async function runBatch(ids, mode) {
+  if (!ids.length) return;
+  try {
+    const result = await api("/api/jobs/batch", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ paper_fks: ids, mode }),
+    });
+    const queued = result.queued || [];
+    toast(queued.length
+      ? `已排队 ${queued.length} 个任务（${mode}），进度见“正在抽取”`
+      : "没有新任务被排队");
+    (result.skipped || []).forEach((item) =>
+      toast(`跳过 ${item.paper_fk}：${item.reason}`, "warn"));
+    S.picked.clear();
+    await loadPapers();
+    await loadStatus();
+    queued.forEach((item) => pollJob(item.job_fk));
+  } catch (error) { toast(error.message, "err"); }
+}
+
+$("bulkRun").addEventListener("click", () =>
+  runBatch([...S.picked], $("bulkMode").value));
+
+$("bulkRunPending").addEventListener("click", () => {
+  const ids = S.papers.filter((p) => groupOf(p) === "pending").map((p) => p.id);
+  if (!ids.length) { toast("没有待抽取的论文", "warn"); return; }
+  runBatch(ids, $("bulkMode").value);
+});
+
+$("bulkDelete").addEventListener("click", async () => {
+  const ids = [...S.picked];
+  if (!ids.length) return;
+  if (!confirm(`删除选中的 ${ids.length} 篇论文及其全部抽取记录？此操作不可撤销。`)) return;
+  try {
+    const result = await api("/api/papers/batch-delete", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ paper_fks: ids }),
+    });
+    toast(`已删除 ${(result.deleted || []).length} 篇论文`);
+    (result.blocked || []).forEach((item) =>
+      toast(`${item.paper_key} 未删除：${item.reason}`, "warn"));
+    if (S.paper && ids.includes(S.paper.id)) { S.paper = null; renderFields(); }
+    S.picked.clear();
+    await loadPapers();
+    await loadStatus();
+  } catch (error) { toast(error.message, "err"); }
+});
 
 async function handleCardAction(event) {
   const card = event.target.closest(".paper-card");
@@ -299,8 +403,10 @@ async function handleCardAction(event) {
   }
 }
 
-["doneGrid", "pendingGrid", "failedGrid"].forEach((id) =>
-  $(id).addEventListener("click", handleCardAction));
+["doneGrid", "pendingGrid", "failedGrid"].forEach((id) => {
+  $(id).addEventListener("click", handleCardAction);
+  $(id).addEventListener("change", handlePickChange);
+});
 
 /** 显示已用时长；LLM 阶段额外提示耗时属正常。 */
 function renderElapsed(node, startedAt, slow) {
@@ -404,12 +510,14 @@ $("seedBtn").addEventListener("click", async () => {
 /* review (提取结果)                                                   */
 /* ------------------------------------------------------------------ */
 
-/** 卡片式论文切换器：一眼看到有哪些论文、各有几条记录、当前在看哪篇。 */
+/** 卡片式论文切换器：默认只占一行，多出来的折叠，可展开。 */
 function renderPaperSwitch() {
   const usable = S.papers.filter((p) => p.n_records > 0);
   const box = $("paperSwitch");
+  const more = $("switchMore");
   if (!usable.length) {
     box.innerHTML = '<span class="group-note">还没有已完成抽取的论文。</span>';
+    more.hidden = true;
     return;
   }
   box.innerHTML = usable.map((p) => `
@@ -421,7 +529,52 @@ function renderPaperSwitch() {
       </span>
       <span class="switch-title">${esc(p.title)}</span>
     </button>`).join("");
+  // 布局尚未结算时量不到真实宽度，推到下一帧
+  requestAnimationFrame(() => syncSwitchOverflow(usable.length));
 }
+
+/** 判断一行是否装不下，据此显示“展开 / 收起”按钮。 */
+function syncSwitchOverflow(total) {
+  const box = $("paperSwitch");
+  const more = $("switchMore");
+  const expanded = !box.classList.contains("collapsed");
+
+  if (expanded) {
+    more.hidden = false;
+    more.textContent = "收起";
+    return;
+  }
+
+  // 折叠时是 nowrap，溢出表现为横向超宽
+  const overflowing = box.scrollWidth > box.clientWidth + 2;
+  more.hidden = !overflowing;
+  if (!overflowing) return;
+
+  // nowrap 下所有卡片 offsetTop 相同，只能按横向可见范围统计
+  const cards = [...box.querySelectorAll(".switch-card")];
+  const limit = box.clientWidth + 2;
+  const base = cards.length ? cards[0].offsetLeft : 0;
+  const visible = cards.filter((c) => c.offsetLeft - base + c.offsetWidth <= limit).length;
+  const hidden = Math.max(0, total - visible);
+  more.textContent = hidden ? `展开 +${hidden}` : "展开";
+
+  // 当前选中的论文若被折叠在外，横向滚动到可见位置
+  const active = box.querySelector(".switch-card.active");
+  if (active) active.scrollIntoView({ inline: "nearest", block: "nearest" });
+}
+
+$("switchMore").addEventListener("click", () => {
+  const box = $("paperSwitch");
+  box.classList.toggle("collapsed");
+  syncSwitchOverflow(box.querySelectorAll(".switch-card").length);
+});
+
+window.addEventListener("resize", () => {
+  const box = $("paperSwitch");
+  if (box.querySelector(".switch-card")) {
+    syncSwitchOverflow(box.querySelectorAll(".switch-card").length);
+  }
+});
 
 $("paperSwitch").addEventListener("click", async (event) => {
   const card = event.target.closest(".switch-card");
@@ -491,6 +644,7 @@ $("recordTabs").addEventListener("click", (event) => {
   S.dirty.clear();
   renderRecordTabs();
   renderFields();
+  if (!$("historyBox").hidden) loadHistory();
   showPage(firstEvidencePage() || S.page);
 });
 
@@ -650,6 +804,7 @@ $("saveRecord").addEventListener("click", async () => {
     renderRecordTabs();
     renderFields();
     toast(updated.n_changes ? `已保存 ${updated.n_changes} 处修改` : "已保存");
+    if (!$("historyBox").hidden) await loadHistory();
     await loadPapers();
     await loadStatus();
   } catch (error) { toast(error.message, "err"); }
@@ -659,6 +814,83 @@ $("exportJsonl").addEventListener("click", () =>
   window.open(S.paper ? `/api/export?fmt=jsonl&paper_fk=${S.paper.id}` : "/api/export?fmt=jsonl"));
 $("exportCsv").addEventListener("click", () =>
   window.open(S.paper ? `/api/export?fmt=csv&paper_fk=${S.paper.id}` : "/api/export?fmt=csv"));
+
+/* ------------------------------------------------------------------ */
+/* edit history                                                        */
+/* ------------------------------------------------------------------ */
+
+function formatStamp(iso) {
+  const parsed = Date.parse(iso || "");
+  if (!parsed) return "";
+  const d = new Date(parsed);
+  const pad = (n) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} `
+       + `${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
+function valueHtml(value) {
+  return value === null || value === undefined || value === ""
+    ? '<code class="history-empty-val">（空）</code>'
+    : `<code>${esc(value)}</code>`;
+}
+
+async function loadHistory() {
+  const record = currentRecord();
+  const list = $("historyList");
+  if (!record) {
+    list.innerHTML = '<div class="placeholder">没有选中记录。</div>';
+    $("historyCount").textContent = "0";
+    return;
+  }
+  try {
+    const data = await api(`/api/records/${record.id}/history`);
+    $("historyCount").textContent = data.total;
+    list.innerHTML = data.edits.length
+      ? data.edits.map((e) => `
+        <div class="history-item" data-edit="${e.id}">
+          <div class="history-item-top">
+            <span class="history-field">${esc(e.label)}</span>
+            <span class="history-time">${esc(formatStamp(e.created_at))}</span>
+            <button class="history-revert" data-edit="${e.id}">撤销此项</button>
+          </div>
+          <div class="history-diff">
+            <span class="history-old"><b>修改前</b>${valueHtml(e.old_value)}</span>
+            <span class="history-new"><b>修改后</b>${valueHtml(e.new_value)}</span>
+          </div>
+        </div>`).join("")
+      : '<div class="placeholder">这条记录还没有人工修改。保存字段修改后会在此留痕。</div>';
+  } catch (error) {
+    list.innerHTML = `<div class="placeholder">读取失败：${esc(error.message)}</div>`;
+  }
+}
+
+$("historyToggle").addEventListener("click", async () => {
+  const box = $("historyBox");
+  box.hidden = !box.hidden;
+  if (!box.hidden) await loadHistory();
+});
+
+$("historyClose").addEventListener("click", () => { $("historyBox").hidden = true; });
+
+$("historyList").addEventListener("click", async (event) => {
+  const button = event.target.closest(".history-revert");
+  if (!button) return;
+  const record = currentRecord();
+  if (!record) return;
+  if (S.dirty.size && !confirm("当前有未保存的修改，撤销会重新加载字段。继续？")) return;
+  try {
+    const updated = await api(`/api/records/${record.id}/revert`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ edit_id: Number(button.dataset.edit) }),
+    });
+    S.paper.records[S.recordIndex] = { ...updated, paper_key: S.paper.paper_key };
+    S.dirty.clear();
+    renderFields();
+    await loadHistory();
+    toast(`已撤销「${updated.label}」的这次修改`);
+  } catch (error) { toast(error.message, "err"); }
+});
 
 /* ------------------------------------------------------------------ */
 /* compare (样品对比)                                                  */
@@ -846,8 +1078,11 @@ async function runSearch() {
   catch (error) { toast(error.message, "err"); return; }
 
   const labels = Object.fromEntries(S.fields.map((f) => [f.key, f.label]));
+  const isNumeric = (key) => key === "surface_area" || key === "pore_size";
   $("searchTable").querySelector("thead").innerHTML =
-    `<tr><th>论文</th><th>样品</th>${SEARCH_COLUMNS.map((k) => `<th>${esc(labels[k])}</th>`).join("")}</tr>`;
+    `<tr><th>论文</th><th>样品</th>${SEARCH_COLUMNS
+      .map((k) => `<th class="${isNumeric(k) ? "num" : ""}">${esc(labels[k])}</th>`)
+      .join("")}</tr>`;
 
   $("searchTable").querySelector("tbody").innerHTML = data.results.length
     ? data.results.map((r) => `
@@ -856,10 +1091,10 @@ async function runSearch() {
         <td>r${String(r.record_index).padStart(2, "0")}</td>
         ${SEARCH_COLUMNS.map((k) => {
           const value = r.fields[k];
-          const numeric = k === "surface_area" || k === "pore_size";
+          const cls = isNumeric(k) ? "num" : "";
           return value
-            ? `<td class="${numeric ? "num" : ""}" title="${esc(value)}">${esc(value)}</td>`
-            : '<td class="null">—</td>';
+            ? `<td class="${cls}" title="${esc(value)}">${esc(value)}</td>`
+            : `<td class="${cls}"><span class="null">—</span></td>`;
         }).join("")}
       </tr>`).join("")
     : `<tr><td colspan="${SEARCH_COLUMNS.length + 2}"><div class="placeholder">没有符合条件的记录。</div></td></tr>`;

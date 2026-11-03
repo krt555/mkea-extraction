@@ -72,6 +72,24 @@
         <span>解析后即可创建抽取任务；支持多选上传</span>
       </div>
 
+      <!-- 批量操作栏：面对大量文件时避免逐个点击 -->
+      <div class="bulk-bar" id="bulkBar" hidden>
+        <label class="check">
+          <input type="checkbox" id="bulkSelectAll" /> 全选
+        </label>
+        <span class="bulk-count" id="bulkCount">已选 0 篇</span>
+        <span class="bulk-sep"></span>
+        <select class="select" id="bulkMode" title="批量抽取模式">
+          <option value="anchored">anchored</option>
+          <option value="oneshot">oneshot</option>
+          <option value="agent">agent</option>
+          <option value="rules">rules</option>
+        </select>
+        <button class="btn primary" id="bulkRun" disabled>一键抽取</button>
+        <button class="btn" id="bulkRunPending" title="只抽取尚未抽取的论文">抽取全部待抽取</button>
+        <button class="btn danger" id="bulkDelete" disabled>一键删除</button>
+      </div>
+
       <!-- 进行中的任务单独成组，带百分比与阶段文字 -->
       <section class="lib-group" id="groupRunning" hidden>
         <div class="group-head">
@@ -118,8 +136,11 @@
 
     <section class="view" id="view-review">
       <div class="review-head">
-        <div class="paper-switch" id="paperSwitch"></div>
+        <!-- 候选区默认只显示一行，超出折叠 -->
+        <div class="paper-switch collapsed" id="paperSwitch"></div>
+        <button class="btn sm switch-more" id="switchMore" hidden></button>
         <div class="review-tools">
+          <button class="btn" id="historyToggle">修改历史</button>
           <button class="btn" id="exportJsonl">导出 JSONL</button>
           <button class="btn" id="exportCsv">导出 CSV</button>
         </div>
@@ -150,6 +171,13 @@
           </div>
           <div class="field-list" id="fieldList">
             <div class="placeholder">选择一篇已完成抽取的论文。</div>
+          </div>
+          <div class="history-box" id="historyBox" hidden>
+            <div class="history-head">
+              <span>修改历史 <em id="historyCount">0</em></span>
+              <button class="icon-btn" id="historyClose">×</button>
+            </div>
+            <div class="history-list" id="historyList"></div>
           </div>
           <div class="panel-foot" id="reviewFoot" hidden>
             <label class="check">

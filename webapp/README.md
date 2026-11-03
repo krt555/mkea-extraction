@@ -11,8 +11,8 @@
 ## 1. 快速开始
 
 ```bash
-# 安装 Web 层依赖（抽取内核的依赖见根目录 pyproject.toml）
-pip install -r webapp/requirements.txt
+# 安装依赖（含 Web 层）：项目用 uv 管理
+uv sync --extra web
 
 # 启动（默认 http://127.0.0.1:8000）
 python webapp/run.py
@@ -20,6 +20,9 @@ python webapp/run.py
 # 自定义端口 / 开发热重载
 python webapp/run.py --port 8800 --reload
 ```
+
+> Web 依赖声明在 `pyproject.toml` 的 `web` extra 里。若用 pip：
+> `pip install -r webapp/requirements.txt`。
 
 打开浏览器后，若文献库为空，点击 **载入演示数据**：会即时生成 3 篇
 演示论文 PDF 并自动跑完抽取，**无需 API Key、无需准备 PDF**。
@@ -41,8 +44,9 @@ cp .env.example .env
 
 | 模块 | 说明 |
 | --- | --- |
-| **文献库** | 上传 / 拖拽 PDF、选择抽取模式、任务进度实时轮询、失败提示 |
-| **复核工作台** | 左右联动：点击字段 → 跳转证据页 → 高亮原文引文；可改、可标记已复核、可导出 |
+| **文献库** | 上传 / 拖拽 PDF、按状态分组（正在抽取 / 已完成 / 待抽取 / 失败）、进度百分比与已用时长、**全选与一键抽取 / 一键删除** |
+| **提取结果** | 左右联动：点击字段 → 跳转证据页 → 高亮原文引文；可改、可标记已复核、可导出；**修改历史可查看并逐项撤销**；论文候选区默认一行、超出折叠 |
+| **样品对比** | 跨论文勾选多条记录，生成条件矩阵，高亮差异项、标出共同条件，可导出对比 CSV |
 | **跨论文检索** | 按字段值关键词 + 比表面积/孔径数值区间筛选，横向比较不同论文 |
 | **任务与日志** | 任务状态、所用引擎与模型、运行提示（issues） |
 | **AI 助手** | 常驻侧边栏，每条回答附页码引文，点击引文跳回原文 |
@@ -91,6 +95,13 @@ issues——界面上看到的每个 `p.N` 都是可点击验证的。
 **5. 演示数据走真实链路。** 载入演示数据时会用 PyMuPDF 实际生成 PDF 文件，
 再经过与用户上传完全相同的解析→抽取→校验流程，而不是预埋结果。
 
+**6. 双栏论文按栏阅读。** `get_text("text", sort=True)` 只按纵坐标排序，
+双栏论文会把左右栏的句子拼进同一行。`pdf.py` 先探测版心中间几乎无文本块
+跨越的竖直空白带作为栏分隔，再按「跨栏块 → 左栏 → 右栏」重排，
+使左栏读完才进入右栏。同时不再按字符总量在 PyMuPDF 与 `pdftotext` 之间择优
+——`pdftotext -layout` 的空格填充会让字符数虚高从而总是胜出，
+而它保留的正是导致错乱的视觉布局。
+
 ---
 
 ## 4. 接口一览
@@ -106,7 +117,10 @@ issues——界面上看到的每个 `p.N` 都是可点击验证的。
 | POST | `/api/jobs` | 创建抽取任务（`mode`: anchored/oneshot/agent/rules） |
 | GET | `/api/jobs/{id}` | 任务进度 |
 | PUT | `/api/records/{id}` | 修改字段 / 标记已复核 |
-| GET | `/api/records/{id}/history` | 修改审计 |
+| GET | `/api/records/{id}/history` | 修改审计（含字段中文名） |
+| POST | `/api/records/{id}/revert` | 撤销某一次字段修改 |
+| POST | `/api/jobs/batch` | 批量创建抽取任务 |
+| POST | `/api/papers/batch-delete` | 批量删除论文 |
 | GET | `/api/search` | 结构化检索（关键词 + 数值区间） |
 | GET | `/api/export?fmt=jsonl\|csv` | 导出，JSONL 符合 `docs/extraction-contract.md` |
 | POST | `/api/ask` | 带引用问答 |
@@ -135,6 +149,7 @@ PYTHONPATH=src python -m unittest discover -s tests
 ## 6. 已知限制
 
 - 双向定位到**页码 + 引文高亮**，未做字符级坐标框选。
+- 栏检测针对常见的单栏 / 双栏科技论文；三栏或不规则分栏版式会退回按纵坐标排序。
 - 规则引擎每篇只产出一条记录；多样品拆分依赖 LLM 模式。
 - 任务用后台线程执行，适合演示规模；高并发需换 Celery/RQ 等队列。
 - SQLite 单写入者，已用进程锁串行化。

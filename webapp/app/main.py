@@ -472,11 +472,142 @@ async def api_update_record(record_fk: int, request: Request) -> dict[str, Any]:
 @app.get("/api/records/{record_fk}/history")
 def api_record_history(record_fk: int) -> dict[str, Any]:
     rows = db.query(
-        "SELECT field, old_value, new_value, created_at FROM edits WHERE record_fk = ?"
+        "SELECT id, field, old_value, new_value, created_at FROM edits WHERE record_fk = ?"
         " ORDER BY id DESC",
         (record_fk,),
     )
-    return {"edits": rows}
+    edits = [
+        {
+            **row,
+            "label": FIELD_LABELS.get(row["field"], row["field"]),
+        }
+        for row in rows
+    ]
+    return {"edits": edits, "total": len(edits)}
+
+
+@app.post("/api/records/{record_fk}/revert")
+async def api_revert_edit(record_fk: int, request: Request) -> dict[str, Any]:
+    """Restore one field to the value it had before a given edit."""
+    body = await request.json()
+    edit_id = int(body.get("edit_id") or 0)
+    record = db.one("SELECT * FROM records WHERE id = ?", (record_fk,))
+    if not record:
+        raise HTTPException(404, "记录不存在")
+    edit = db.one(
+        "SELECT * FROM edits WHERE id = ? AND record_fk = ?", (edit_id, record_fk)
+    )
+    if not edit:
+        raise HTTPException(404, "修改记录不存在")
+
+    fields = loads(record["fields_json"], {})
+    key = edit["field"]
+    current = fields.get(key)
+    target = edit["old_value"]
+    if current == target:
+        raise HTTPException(409, "该字段当前已是撤销后的值")
+
+    fields[key] = target
+    stamp = now()
+    with db.connect() as conn:
+        conn.execute(
+            "UPDATE records SET fields_json = ?, updated_at = ? WHERE id = ?",
+            (dumps(fields), stamp, record_fk),
+        )
+        # 撤销本身也记入历史，保持可追溯
+        conn.execute(
+            "INSERT INTO edits (record_fk, field, old_value, new_value, created_at)"
+            " VALUES (?, ?, ?, ?, ?)",
+            (record_fk, key, current, target, stamp),
+        )
+
+    updated = db.one("SELECT * FROM records WHERE id = ?", (record_fk,))
+    paper = db.one("SELECT * FROM papers WHERE id = ?", (record["paper_fk"],))
+    payload = _record_payload(updated or {}, paper)
+    payload["reverted_field"] = key
+    payload["label"] = FIELD_LABELS.get(key, key)
+    return payload
+
+
+# --------------------------------------------------------------------------- #
+# batch operations
+# --------------------------------------------------------------------------- #
+
+@app.post("/api/jobs/batch")
+async def api_batch_jobs(request: Request) -> dict[str, Any]:
+    """Queue extraction for several papers at once."""
+    body = await request.json()
+    ids = body.get("paper_fks") or []
+    mode = str(body.get("mode") or "anchored")
+    if mode not in {"anchored", "agent", "oneshot", "rules"}:
+        raise HTTPException(400, "mode 不合法")
+    if not isinstance(ids, list) or not ids:
+        raise HTTPException(400, "paper_fks 不能为空")
+
+    queued: list[dict[str, Any]] = []
+    skipped: list[dict[str, Any]] = []
+    for raw in ids:
+        try:
+            paper_fk = int(raw)
+        except (TypeError, ValueError):
+            continue
+        paper = db.one("SELECT paper_key FROM papers WHERE id = ?", (paper_fk,))
+        if not paper:
+            skipped.append({"paper_fk": paper_fk, "reason": "论文不存在"})
+            continue
+        with _JOB_LOCK:
+            active = db.one(
+                "SELECT id FROM jobs WHERE paper_fk = ? AND status IN ('queued','running')",
+                (paper_fk,),
+            )
+            if active:
+                skipped.append({"paper_fk": paper_fk, "reason": "已有进行中的任务"})
+                continue
+            job_fk = db.execute(
+                "INSERT INTO jobs (paper_fk, status, stage, progress, mode, created_at)"
+                " VALUES (?, 'queued', '排队中', 5, ?, ?)",
+                (paper_fk, mode, now()),
+            )
+        threading.Thread(
+            target=_run_job, args=(job_fk, paper_fk, mode), daemon=True
+        ).start()
+        queued.append({"paper_fk": paper_fk, "job_fk": job_fk, "paper_key": paper["paper_key"]})
+
+    return {"queued": queued, "skipped": skipped, "mode": mode}
+
+
+@app.post("/api/papers/batch-delete")
+async def api_batch_delete(request: Request) -> dict[str, Any]:
+    """Delete several papers and their records at once."""
+    body = await request.json()
+    ids = body.get("paper_fks") or []
+    if not isinstance(ids, list) or not ids:
+        raise HTTPException(400, "paper_fks 不能为空")
+
+    deleted: list[str] = []
+    blocked: list[dict[str, Any]] = []
+    for raw in ids:
+        try:
+            paper_fk = int(raw)
+        except (TypeError, ValueError):
+            continue
+        row = db.one("SELECT * FROM papers WHERE id = ?", (paper_fk,))
+        if not row:
+            continue
+        active = db.one(
+            "SELECT id FROM jobs WHERE paper_fk = ? AND status IN ('queued','running')",
+            (paper_fk,),
+        )
+        if active:
+            blocked.append({"paper_key": row["paper_key"], "reason": "任务进行中"})
+            continue
+        db.execute("DELETE FROM papers WHERE id = ?", (paper_fk,))
+        path = ROOT / row["pdf_path"]
+        if row["source"] == "upload" and path.exists() and UPLOAD_DIR in path.parents:
+            path.unlink(missing_ok=True)
+        deleted.append(row["paper_key"])
+
+    return {"deleted": deleted, "blocked": blocked}
 
 
 # --------------------------------------------------------------------------- #
